@@ -10,6 +10,7 @@ import {
 import React from "react";
 import {
   Dimensions,
+  Image,
   SafeAreaView,
   ScrollView,
   StatusBar,
@@ -38,6 +39,16 @@ export default function LandingPageMobile() {
         {/* --- HERO SECTION --- */}
         <LinearGradient colors={["#060d1f", "#0a1628"]} style={styles.hero}>
           {/* Badge */}
+          <Animated.View
+            entering={FadeInUp.delay(100)}
+            style={styles.logoContainer}
+          >
+            <Image
+              source={require("../assets/images/icon.png")} // Khoa kiểm tra lại đường dẫn file icon.png nhé
+              style={styles.mainLogo}
+              resizeMode="contain"
+            />
+          </Animated.View>
           <Animated.View entering={FadeInUp.delay(200)} style={styles.badge}>
             <View style={styles.dot} />
             <Text style={styles.badgeText}>10 triệu+ người dùng tin tưởng</Text>
@@ -122,6 +133,19 @@ export default function LandingPageMobile() {
 }
 
 const styles = StyleSheet.create({
+  logoContainer: {
+    marginBottom: 20,
+    shadowColor: "#3b82f6",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.3,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  mainLogo: {
+    width: 80,
+    height: 80,
+    borderRadius: 20,
+  },
   container: { flex: 1, backgroundColor: "#060d1f" },
   hero: { padding: 24, paddingTop: 60, alignItems: "center" },
   badge: {
