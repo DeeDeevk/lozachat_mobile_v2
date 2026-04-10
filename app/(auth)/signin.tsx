@@ -1,17 +1,11 @@
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
-import {
-  ArrowRight,
-  Eye,
-  EyeOff,
-  Lock,
-  ShieldCheck,
-  User,
-} from "lucide-react-native";
+import { ArrowRight, Eye, EyeOff, Lock, User } from "lucide-react-native";
 import React, { useState } from "react";
 import {
   ActivityIndicator,
   Dimensions,
+  Image,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -95,13 +89,19 @@ export default function SignInScreen() {
         >
           {/* Header */}
           <Animated.View entering={FadeInDown.delay(200)} style={styles.header}>
-            <View style={styles.logoWrapper}>
-              <LinearGradient
-                colors={["#2563eb", "#3b82f6"]}
-                style={styles.logoGradient}
-              >
-                <ShieldCheck color="white" size={32} />
-              </LinearGradient>
+            <View style={styles.logoOuterGlow}>
+              <View style={styles.logoWrapper}>
+                <LinearGradient
+                  colors={["#2563eb", "#3b82f6"]}
+                  style={styles.logoGradient}
+                >
+                  <Image
+                    source={require("../../assets/images/icon.png")}
+                    style={styles.mainLogo}
+                    resizeMode="contain"
+                  />
+                </LinearGradient>
+              </View>
             </View>
             <Text style={styles.appTitle}>Loza</Text>
             <Text style={styles.appSubtitle}>Connect with the future</Text>
@@ -153,7 +153,7 @@ export default function SignInScreen() {
                 <Text style={styles.label}>Mật khẩu</Text>
                 <TouchableOpacity
                   onPress={() => {
-                    /* Điều hướng sang trang Forgot */
+                    router.push("/(auth)/forgot");
                   }}
                 >
                   <Text style={styles.forgotText}>Quên mật khẩu?</Text>
@@ -230,7 +230,7 @@ export default function SignInScreen() {
 
             <View style={styles.footerRow}>
               <Text style={styles.footerText}>Chưa có tài khoản? </Text>
-              <TouchableOpacity onPress={() => router.push("/")}>
+              <TouchableOpacity onPress={() => router.push("/(auth)/signup")}>
                 <Text style={styles.signUpText}>Đăng ký</Text>
               </TouchableOpacity>
             </View>
@@ -242,6 +242,14 @@ export default function SignInScreen() {
 }
 
 const styles = StyleSheet.create({
+  logoContainer: {
+    marginBottom: 20,
+    shadowColor: "#3b82f6",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.3,
+    shadowRadius: 20,
+    elevation: 10,
+  },
   container: { flex: 1, backgroundColor: "#060d1f" },
   bgGlowContainer: { ...StyleSheet.absoluteFillObject, overflow: "hidden" },
   glow: {
@@ -257,20 +265,52 @@ const styles = StyleSheet.create({
     paddingTop: 60,
     paddingBottom: 40,
   },
-  header: { alignItems: "center", marginBottom: 32 },
-  logoWrapper: {
-    width: 64,
-    height: 64,
-    borderRadius: 18,
-    overflow: "hidden",
-    elevation: 10,
-    shadowColor: "#2563eb",
-    shadowOpacity: 0.5,
-    shadowRadius: 10,
+  header: {
+    alignItems: "center",
+    marginBottom: 32,
+    marginTop: 20, // Tạo khoảng cách với đỉnh màn hình
   },
-  logoGradient: { flex: 1, justifyContent: "center", alignItems: "center" },
-  appTitle: { color: "white", fontSize: 24, fontWeight: "800", marginTop: 12 },
-  appSubtitle: { color: "#60a5fa", fontSize: 12, fontWeight: "500" },
+  logoOuterGlow: {
+    padding: 8,
+    borderRadius: 28,
+    backgroundColor: "rgba(37,99,235,0.05)", // Một lớp nền mờ rất nhẹ
+    // Đổ bóng màu xanh tạo hiệu ứng phát sáng (Glow)
+    shadowColor: "#3b82f6",
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.6,
+    shadowRadius: 15,
+    elevation: 20, // Hiển thị glow rõ hơn trên Android
+  },
+  logoWrapper: {
+    width: 72,
+    height: 72,
+    borderRadius: 20,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.15)",
+  },
+  logoGradient: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  mainLogo: {
+    width: "70%", // Để logo nằm gọn bên trong gradient cho đẹp
+    height: "70%",
+  },
+  appTitle: {
+    color: "white",
+    fontSize: 28,
+    fontWeight: "900", // Tăng độ dày chữ cho chuyên nghiệp
+    marginTop: 16,
+    letterSpacing: 2, // Tạo độ thoáng cho text
+  },
+  appSubtitle: {
+    color: "#60a5fa",
+    fontSize: 13,
+    fontWeight: "500",
+    opacity: 0.8,
+  },
   formCard: {
     backgroundColor: "rgba(10, 16, 32, 0.8)",
     borderRadius: 24,

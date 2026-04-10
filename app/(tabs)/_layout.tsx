@@ -1,9 +1,9 @@
 import { Tabs } from "expo-router";
+import { Globe, MessageSquare, UserCircle, Users } from "lucide-react-native";
 import React from "react";
+import { Platform } from "react-native";
 
 import { HapticTab } from "@/components/haptic-tab";
-import { IconSymbol } from "@/components/ui/icon-symbol";
-import { Colors } from "@/constants/theme";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 
 export default function TabLayout() {
@@ -12,18 +12,58 @@ export default function TabLayout() {
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: Colors[colorScheme ?? "light"].tint,
+        // Sử dụng màu sắc từ hệ thống theme của Khoa hoặc màu xanh đặc trưng của Loza
+        tabBarActiveTintColor: "#3b82f6",
+        tabBarInactiveTintColor: "#64748b",
         headerShown: false,
         tabBarButton: HapticTab,
+        tabBarStyle: {
+          backgroundColor: "#0a1628", // Nền tối đồng bộ
+          borderTopWidth: 1,
+          borderTopColor: "rgba(255,255,255,0.05)",
+          height: Platform.OS === "ios" ? 88 : 65,
+          paddingBottom: Platform.OS === "ios" ? 30 : 12,
+          paddingTop: 8,
+        },
+        tabBarLabelStyle: {
+          fontSize: 11,
+          fontWeight: "600",
+        },
       }}
     >
+      {/* 1. Nhắn tin */}
       <Tabs.Screen
         name="index"
         options={{
-          title: "Home",
-          tabBarIcon: ({ color }) => (
-            <IconSymbol size={28} name="house.fill" color={color} />
-          ),
+          title: "Nhắn tin",
+          tabBarIcon: ({ color }) => <MessageSquare size={24} color={color} />,
+        }}
+      />
+
+      {/* 2. Bạn bè */}
+      <Tabs.Screen
+        name="friends"
+        options={{
+          title: "Bạn bè",
+          tabBarIcon: ({ color }) => <Users size={24} color={color} />,
+        }}
+      />
+
+      {/* 3. Khám phá */}
+      <Tabs.Screen
+        name="explore"
+        options={{
+          title: "Khám phá",
+          tabBarIcon: ({ color }) => <Globe size={24} color={color} />,
+        }}
+      />
+
+      {/* 4. Cá nhân */}
+      <Tabs.Screen
+        name="profile"
+        options={{
+          title: "Cá nhân",
+          tabBarIcon: ({ color }) => <UserCircle size={24} color={color} />,
         }}
       />
     </Tabs>
