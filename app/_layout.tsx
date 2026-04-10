@@ -1,24 +1,33 @@
-import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
-import { Stack } from 'expo-router';
-import { StatusBar } from 'expo-status-bar';
-import 'react-native-reanimated';
+import { Tabs } from "expo-router";
+import { MessageSquare } from "lucide-react-native"; // Dùng Lucide cho xịn
+import React from "react";
+import { Platform } from "react-native";
 
-import { useColorScheme } from '@/hooks/use-color-scheme';
-
-export const unstable_settings = {
-  anchor: '(tabs)',
-};
-
-export default function RootLayout() {
-  const colorScheme = useColorScheme();
-
+export default function TabLayout() {
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <Stack>
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
-      </Stack>
-      <StatusBar style="auto" />
-    </ThemeProvider>
+    <Tabs
+      screenOptions={{
+        tabBarActiveTintColor: "#3b82f6", // Màu xanh đặc trưng của Loza
+        tabBarInactiveTintColor: "#64748b",
+        headerShown: false,
+        tabBarStyle: {
+          backgroundColor: "#0a1628",
+          borderTopWidth: 1,
+          borderTopColor: "rgba(255,255,255,0.05)",
+          height: Platform.OS === "ios" ? 88 : 64,
+          paddingBottom: Platform.OS === "ios" ? 30 : 10,
+        },
+      }}
+    >
+      <Tabs.Screen
+        name="index"
+        options={{
+          title: "Chat",
+          tabBarIcon: ({ color }) => <MessageSquare size={24} color={color} />,
+          tabBarStyle: { display: "none" },
+        }}
+      />
+      {/* Nếu bạn có thêm file setting.tsx thì thêm Screen ở đây */}
+    </Tabs>
   );
 }
