@@ -1,44 +1,34 @@
-import { SafeAreaView, StyleSheet, Text, View } from "react-native";
+import ConversationList from "@/components/ConversationList";
+import { useChatStore } from "@/stores/useChatStore";
+import { useRouter } from "expo-router";
+import React, { useEffect } from "react";
+import { SafeAreaView, StyleSheet, View } from "react-native";
 
-export default function ChatPage() {
+export default function ConversationScreen() {
+  const { conversations, fetchConversations } = useChatStore();
+  const router = useRouter();
+
+  useEffect(() => {
+    fetchConversations();
+  }, []);
+
+  const handleSelect = (id: string) => {
+    // Chuyển sang folder chat và truyền conversationId vào URL
+    router.push(`/chat/${id}` as any);
+  };
+
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Đoạn chat</Text>
-      </View>
-      <View style={styles.content}>
-        <Text style={styles.text}>
-          Chào mừng Khoa quay lại! Danh sách chat sẽ hiển thị ở đây.
-        </Text>
-      </View>
-    </SafeAreaView>
+    <View style={styles.container}>
+      <SafeAreaView style={{ flex: 1 }}>
+        <ConversationList
+          conversations={conversations}
+          onSelectConversation={handleSelect}
+        />
+      </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#060d1f", // Màu nền tối đồng bộ
-  },
-  header: {
-    padding: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: "rgba(255,255,255,0.05)",
-  },
-  title: {
-    color: "white",
-    fontSize: 24,
-    fontWeight: "800",
-  },
-  content: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 20,
-  },
-  text: {
-    color: "#94a3b8",
-    textAlign: "center",
-    fontSize: 16,
-  },
+  container: { flex: 1, backgroundColor: "#080e1c" },
 });
