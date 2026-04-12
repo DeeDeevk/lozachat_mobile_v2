@@ -6,6 +6,7 @@ import { decode as atob } from "base-64";
 import Toast from "react-native-toast-message"; // Thay cho sonner
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
+import { useSocketStore } from "./useSocketStore";
 
 interface UserProfile {
   _id: string;
@@ -81,7 +82,7 @@ export const useAuthStore = create<AuthState>()(
 
           await get().fetchCurrentUser();
           // useChatStore.getState().fetchConversations(); // Mở lại khi đã có ChatStore
-
+          useSocketStore.getState().connectSocket();
           Toast.show({
             type: "success",
             text1: "Thành công",

@@ -351,6 +351,15 @@ export default function ProfileScreen({ navigation }: { navigation: any }) {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     });
+    // try {
+    //   const res = await authService.getCurrentUser();
+    //   setLoading(false);
+    //   const data = res?.user ?? res;
+    //   setProfile(data);
+    // } catch (error: any) {
+    //   setLoading(false);
+    //   setError(error?.response?.data?.message ?? 'Không thể tải thông tin');
+    // }
   }, []);
 
   useEffect(() => { loadProfile(); }, [loadProfile]);
