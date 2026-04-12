@@ -3,6 +3,7 @@ import { io, type Socket } from "socket.io-client";
 import { create } from "zustand";
 import { useAuthStore } from "./useAuthStore";
 import { useChatStore } from "./useChatStore";
+import { useFriendStore } from "./useFriendStore";
 
 const baseURL = process.env.EXPO_PUBLIC_SOCKET_URL;
 
@@ -13,6 +14,7 @@ const registerSocketEvents = (socket: Socket, set: any) => {
   socket.off("online-users"); // Khớp với BE io.emit("online-users")
   socket.off("new-message");
   socket.off("message-recalled");
+  socket.off("friend_update"); // Friend real-time updates
 
   socket.on("connect", () => {
     console.log("✅ Đã kết nối với socket (Mobile)");
@@ -54,6 +56,12 @@ const registerSocketEvents = (socket: Socket, set: any) => {
   socket.on("message-recalled", ({ messageId, conversationId }) => {
     console.log("🚫 Tin nhắn đã bị thu hồi:", messageId);
     useChatStore.getState().applyRecallMessage(messageId, conversationId);
+  });
+
+  // Handle real-time friend updates
+  socket.on("friend_update", (update: any) => {
+    console.log("🔥 Real-time friend update:", update.action);
+    useFriendStore.getState().handleRealTimeUpdate(update);
   });
 };
 

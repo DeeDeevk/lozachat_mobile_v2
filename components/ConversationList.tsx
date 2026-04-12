@@ -1,4 +1,4 @@
-import { Search, UserSearch, UsersRound } from "lucide-react-native";
+import { Search, UserRoundSearch, UsersRound } from "lucide-react-native";
 import React, { useState } from "react";
 import {
   FlatList,
@@ -17,6 +17,7 @@ export default function ConversationList({
   conversations,
   activeId = null,
   onSelectConversation,
+  onOpenSearch,
 }) {
   const [searchQuery, setSearchQuery] = useState("");
   const { user } = useAuthStore();
@@ -80,8 +81,11 @@ export default function ConversationList({
       <View style={styles.header}>
         <Text style={styles.title}>Tin nhắn</Text>
         <View style={styles.headerIcons}>
-          <TouchableOpacity style={styles.iconBtn}>
-            <UserSearch size={20} color="white" />
+          <TouchableOpacity
+            style={styles.iconBtn}
+            onPress={() => onOpenSearch?.()}
+          >
+            <UserRoundSearch size={20} color="white" />
           </TouchableOpacity>
           <TouchableOpacity style={styles.iconBtn}>
             <UsersRound size={20} color="white" />
