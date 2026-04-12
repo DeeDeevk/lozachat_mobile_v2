@@ -338,28 +338,28 @@ export default function ProfileScreen({ navigation }: { navigation: any }) {
   const router = useRouter();
 
   const loadProfile = useCallback(async () => {
-    setLoading(false);
-    setProfile({
-      _id: '1',
-      username: 'khoa123',
-      email: 'khoa@example.com',
-      displayName: 'Nguyễn Văn Khoa',
-      avatarUrl: undefined,
-      bio: 'Lập trình viên đam mê Flutter & React Native',
-      phone: '0901234567',
-      role: 'user',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    });
-    // try {
-    //   const res = await authService.getCurrentUser();
-    //   setLoading(false);
-    //   const data = res?.user ?? res;
-    //   setProfile(data);
-    // } catch (error: any) {
-    //   setLoading(false);
-    //   setError(error?.response?.data?.message ?? 'Không thể tải thông tin');
-    // }
+    // setLoading(false);
+    // setProfile({
+    //   _id: '1',
+    //   username: 'khoa123',
+    //   email: 'khoa@example.com',
+    //   displayName: 'Nguyễn Văn Khoa',
+    //   avatarUrl: undefined,
+    //   bio: 'Lập trình viên đam mê Flutter & React Native',
+    //   phone: '0901234567',
+    //   role: 'user',
+    //   createdAt: new Date().toISOString(),
+    //   updatedAt: new Date().toISOString(),
+    // });
+    try {
+      const res = await authService.getCurrentUser();
+      setLoading(false);
+      const data = res?.user ?? res;
+      setProfile(data);
+    } catch (error: any) {
+      setLoading(false);
+      setError(error?.response?.data?.message ?? 'Không thể tải thông tin');
+    }
   }, []);
 
   useEffect(() => { loadProfile(); }, [loadProfile]);
