@@ -18,6 +18,8 @@ export interface ChatState {
   reset: () => void;
   setActiveConversation: (id: string | null) => void;
   fetchConversations: () => Promise<void>;
+  addTypingUser: (userId: string, conversationId: string) => void;
+  removeTypingUser: (userId: string, conversationId: string) => void;
   fetchMessages: (conversationId?: string) => Promise<void>;
   updateLastRead: (
     userId: string,
