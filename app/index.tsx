@@ -44,7 +44,7 @@ export default function LandingPageMobile() {
             style={styles.logoContainer}
           >
             <Image
-              source={require("../assets/images/icon.png")} // Khoa kiểm tra lại đường dẫn file icon.png nhé
+              source={require("../assets/images/icon.png")}
               style={styles.mainLogo}
               resizeMode="contain"
             />
