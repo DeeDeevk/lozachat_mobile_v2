@@ -1,3 +1,4 @@
+import type { UploadAttachmentResponse } from "@/services/chatService";
 import type { Socket } from "socket.io-client";
 import type { Conversation, Message } from "./chat";
 
@@ -7,7 +8,7 @@ export interface ChatState {
     string,
     {
       items: Message[];
-      hashMore: boolean; // infinite-scroll
+      hasMore: boolean; // infinite-scroll
       nextCursor?: string | null;
     }
   >;
@@ -18,16 +19,26 @@ export interface ChatState {
   setActiveConversation: (id: string | null) => void;
   fetchConversations: () => Promise<void>;
   fetchMessages: (conversationId?: string) => Promise<void>;
+  updateLastRead: (
+    userId: string,
+    conversationId: string,
+    lastReadMessageId: string,
+  ) => void;
   sendDirectMessage: (
     recipientId: string,
-    content: string,
-    imgUrl?: string,
+    payload: {
+      content?: string;
+      imgUrl?: string;
+    },
   ) => Promise<void>;
   sendGroupMessage: (
     conversationId: string,
-    content: string,
-    imgUrl?: string,
+    payload: {
+      content?: string;
+      imgUrl?: string;
+    },
   ) => Promise<void>;
+  uploadAttachment: (file: File) => Promise<UploadAttachmentResponse>;
   // add message
   addMessage: (message: Message) => Promise<void>;
   // update convo
@@ -40,11 +51,38 @@ export interface ChatState {
     conversationId: string,
   ) => Promise<void>;
   addConversation: (conversation: Conversation) => void;
+  typingUsersByConv: Record<string, string[]>;
+  addTypingUser: (userId: string, conversationId: string) => void;
+  removeTypingUser: (userId: string, conversationId: string) => void;
+  clearTypingUsers: (conversationId: string) => void;
+  updateStrangerStatus: (
+    conversationId: string,
+    action: "accepted" | "declined",
+  ) => Promise<void>;
+}
+
+export interface FriendUpdateEvent {
+  action: string;
+  targetUserId?: string;
+  senderId?: string;
+  receiverId?: string;
+  fromUserId?: string;
+  requestId?: string;
+  newFriend?: { _id: string; displayName: string; avatarUrl: string };
+  deleteMessageForMe: (
+    messageId: string,
+    conversationId: string,
+  ) => Promise<void>;
+  addConversation: (conversation: Conversation) => void;
+  typingUsersByConv: Record<string, string[]>;
+  addTypingUser: (userId: string, conversationId: string) => void;
+  removeTypingUser: (userId: string, conversationId: string) => void;
+  clearTypingUsers: (conversationId: string) => void;
 }
 
 export interface SocketState {
   socket: Socket | null;
-  onlineUsers: String[];
+  onlineUsers: string[];
   connectSocket: () => void;
   disconnectSocket: () => void;
 }
