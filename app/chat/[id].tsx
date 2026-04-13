@@ -14,20 +14,24 @@ import {
 } from "@/utils/chatMessageCodec";
 import { formatTime } from "@/utils/formatTime";
 import { Audio } from "expo-av";
+import * as Clipboard from "expo-clipboard";
 import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
 import { LinearGradient } from "expo-linear-gradient";
+import * as WebBrowser from "expo-web-browser";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import {
   BarChart3,
   ChevronLeft,
+  Copy,
   FileUp,
   Image as ImageIcon,
   Mic,
+  Pause,
+  Play,
   Reply,
   RotateCcw,
   Send,
-  Smile,
   Sticker,
   Trash2,
   User as UserIcon,
@@ -50,6 +54,7 @@ import {
   Platform,
   Pressable,
   SafeAreaView,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -58,7 +63,7 @@ import {
 } from "react-native";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-type PopupType = "emoji" | "media" | "sticker" | "audio" | "poll" | null;
+type PopupType = "media" | "sticker" | "audio" | "poll" | null;
 
 interface ContextMenuState {
   message: Message;
@@ -73,6 +78,11 @@ interface PollAggregate {
   latestActivityAt: string;
 }
 
+interface VoteDetailModalState {
+  pollId: string;
+  activeOptionId: string | null;
+}
+
 // ─── Constants ────────────────────────────────────────────────────────────────
 const CHAT_STICKER_LIST = [
   "https://sdl-stickershop.line.naver.jp/stickershop/v1/product/1414779/LINEStorePC/main.png;compress=true?__=20161019",
@@ -82,42 +92,28 @@ const CHAT_STICKER_LIST = [
   "https://sdl-stickershop.line.naver.jp/stickershop/v1/product/1414804/LINEStorePC/main.png;compress=true?__=20161019",
   "https://sdl-stickershop.line.naver.jp/stickershop/v1/product/1414799/IOS/main_animation.png?__=20161019",
 ];
-
-const EMOJI_LIST = [
-  "😀",
-  "😂",
-  "🥰",
-  "😎",
-  "😭",
-  "🤔",
-  "😅",
-  "🥳",
-  "😤",
-  "🤩",
-  "👍",
-  "👏",
-  "🙏",
-  "🔥",
-  "❤️",
-  "💯",
-  "🎉",
-  "😱",
-  "🤣",
-  "😍",
-  "😜",
-  "🤗",
-  "😇",
-  "🫡",
-  "💪",
-  "✌️",
-  "🫶",
-  "🥺",
-  "😴",
-  "🤯",
-];
+const VOTE_PAGE_SIZE = 5;
 
 function createPollId() {
   return `poll_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function getAudioUploadMeta(uri: string) {
+  const ext = (uri.split(".").pop() || "m4a").toLowerCase();
+  const mimeByExt: Record<string, string> = {
+    m4a: "audio/mp4",
+    mp4: "audio/mp4",
+    aac: "audio/aac",
+    wav: "audio/wav",
+    ogg: "audio/ogg",
+    webm: "audio/webm",
+    mp3: "audio/mpeg",
+  };
+
+  return {
+    name: `recording-${Date.now()}.${ext}`,
+    type: mimeByExt[ext] || "audio/mp4",
+  };
 }
 
 function getSenderName(
@@ -146,12 +142,21 @@ export default function ChatDetailScreen() {
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [pollQuestion, setPollQuestion] = useState("");
   const [pollOptions, setPollOptions] = useState(["", ""]);
+  const [voteDetailModal, setVoteDetailModal] =
+    useState<VoteDetailModalState | null>(null);
+  const [votePage, setVotePage] = useState(1);
+  const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
+  const [previewImageLoading, setPreviewImageLoading] = useState(false);
+  const [previewImageError, setPreviewImageError] = useState<string | null>(null);
 
   // Audio recording
   const [isRecording, setIsRecording] = useState(false);
   const [recordSeconds, setRecordSeconds] = useState(0);
   const recordingRef = useRef<Audio.Recording | null>(null);
   const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const soundRef = useRef<Audio.Sound | null>(null);
+  const [playingMessageId, setPlayingMessageId] = useState<string | null>(null);
+  const [loadingAudioId, setLoadingAudioId] = useState<string | null>(null);
 
   const {
     messages,
@@ -252,6 +257,39 @@ export default function ChatDetailScreen() {
     return map;
   }, [currentMessages]);
 
+  const activeVotePoll = useMemo(() => {
+    if (!voteDetailModal?.pollId) return null;
+    return pollAggregates.get(voteDetailModal.pollId) || null;
+  }, [pollAggregates, voteDetailModal?.pollId]);
+
+  const activeVoteOptionId =
+    voteDetailModal?.activeOptionId || activeVotePoll?.options[0]?.id || null;
+
+  const activeVoteList = useMemo(() => {
+    if (!activeVotePoll || !activeVoteOptionId) return [];
+    return activeVotePoll.votes
+      .filter((v) => v.optionId === activeVoteOptionId)
+      .sort(
+        (a, b) =>
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+      );
+  }, [activeVoteOptionId, activeVotePoll]);
+
+  const totalVotePages = useMemo(
+    () => Math.max(1, Math.ceil(activeVoteList.length / VOTE_PAGE_SIZE)),
+    [activeVoteList.length],
+  );
+
+  const pagedVoteList = useMemo(() => {
+    const start = (votePage - 1) * VOTE_PAGE_SIZE;
+    return activeVoteList.slice(start, start + VOTE_PAGE_SIZE);
+  }, [activeVoteList, votePage]);
+
+  const voteModalHeight = useMemo(() => {
+    const rows = Math.min(VOTE_PAGE_SIZE, Math.max(1, activeVoteList.length));
+    return Math.min(560, 250 + rows * 52);
+  }, [activeVoteList.length]);
+
   const displayMessages = useMemo(() => {
     return currentMessages
       .filter((m) => {
@@ -273,8 +311,67 @@ export default function ChatDetailScreen() {
     return () => {
       setActiveConversation(null);
       if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+      if (soundRef.current) {
+        void soundRef.current.unloadAsync();
+        soundRef.current = null;
+      }
     };
   }, [id]);
+
+  const stopAndReleaseSound = useCallback(async () => {
+    if (!soundRef.current) return;
+    try {
+      await soundRef.current.stopAsync();
+      await soundRef.current.unloadAsync();
+    } catch {
+      // Best effort cleanup.
+    } finally {
+      soundRef.current = null;
+      setPlayingMessageId(null);
+      setLoadingAudioId(null);
+    }
+  }, []);
+
+  const handleToggleAudioPlayback = useCallback(
+    async (messageId: string, audioUrl: string) => {
+      try {
+        if (playingMessageId === messageId) {
+          await stopAndReleaseSound();
+          return;
+        }
+
+        setLoadingAudioId(messageId);
+        await stopAndReleaseSound();
+
+        await Audio.setAudioModeAsync({
+          allowsRecordingIOS: false,
+          playsInSilentModeIOS: true,
+          playThroughEarpieceAndroid: false,
+        });
+
+        const { sound } = await Audio.Sound.createAsync(
+          { uri: audioUrl },
+          { shouldPlay: true, volume: 1 },
+        );
+
+        soundRef.current = sound;
+        setPlayingMessageId(messageId);
+        setLoadingAudioId(null);
+
+        sound.setOnPlaybackStatusUpdate((status) => {
+          if (!status.isLoaded) return;
+          if (status.didJustFinish) {
+            void stopAndReleaseSound();
+          }
+        });
+      } catch {
+        setLoadingAudioId(null);
+        setPlayingMessageId(null);
+        Alert.alert("Lỗi", "Không thể phát âm thanh");
+      }
+    },
+    [playingMessageId, stopAndReleaseSound],
+  );
 
   // Mark last message as read
   useEffect(() => {
@@ -298,6 +395,14 @@ export default function ChatDetailScreen() {
       );
     }
   }, [displayMessages.length]);
+
+  useEffect(() => {
+    setVotePage(1);
+  }, [voteDetailModal?.pollId, voteDetailModal?.activeOptionId]);
+
+  useEffect(() => {
+    if (votePage > totalVotePages) setVotePage(totalVotePages);
+  }, [totalVotePages, votePage]);
 
   // ─── Helpers ────────────────────────────────────────────────────────────────
   const canRecall = useCallback(
@@ -431,6 +536,7 @@ export default function ChatDetailScreen() {
   // ─── Pick file ───────────────────────────────────────────────────────────────
   const handlePickFile = useCallback(async () => {
     const result = await DocumentPicker.getDocumentAsync({
+      type: "*/*",
       copyToCacheDirectory: true,
     });
     if (!result.canceled && result.assets[0]) {
@@ -476,14 +582,20 @@ export default function ChatDetailScreen() {
     if (!recording) return;
     try {
       await recording.stopAndUnloadAsync();
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: false,
+        playsInSilentModeIOS: true,
+        playThroughEarpieceAndroid: false,
+      });
       const uri = recording.getURI();
       if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
       setIsRecording(false);
       setRecordSeconds(0);
       recordingRef.current = null;
       if (uri) {
+        const audioMeta = getAudioUploadMeta(uri);
         await sendAttachmentMessage(
-          { uri, name: `recording-${Date.now()}.m4a`, type: "audio/m4a" },
+          { uri, name: audioMeta.name, type: audioMeta.type },
           "audio",
         );
       }
@@ -573,6 +685,79 @@ export default function ChatDetailScreen() {
     }
   }, [contextMenu, id, deleteMessageForMe]);
 
+  const getCopyableMessageText = useCallback((message: Message) => {
+    if (message.isRecalled) return "";
+    const payload = decodeChatPayload(message.content);
+    if (!payload) {
+      if (message.content?.trim()) return message.content.trim();
+      return message.imgUrl || "";
+    }
+
+    if (payload.kind === "text") return payload.text?.trim() || "";
+    if (payload.kind === "reply") return payload.text?.trim() || "";
+    if (payload.kind === "emoji") return payload.emoji || "";
+    if (payload.kind === "image") return payload.attachment?.url || "";
+    if (payload.kind === "file") return "";
+    if (payload.kind === "audio") return payload.attachment?.url || "";
+    if (payload.kind === "sticker") return payload.stickerUrl || "";
+    if (payload.kind === "poll" && payload.poll) {
+      return `${payload.poll.question}\n${payload.poll.options
+        .map((o) => `- ${o.label}`)
+        .join("\n")}`;
+    }
+
+    return getSafeMessagePreview(message.content);
+  }, []);
+
+  const isFileMessage = useCallback((message: Message) => {
+    const payload = decodeChatPayload(message.content);
+    return payload?.kind === "file" && !!payload.attachment;
+  }, []);
+
+  const handleCopyMessage = useCallback(async () => {
+    if (!contextMenu) return;
+    if (isFileMessage(contextMenu.message)) {
+      Alert.alert("Thông báo", "Tin nhắn file không cho phép sao chép");
+      setContextMenu(null);
+      return;
+    }
+    const copyText = getCopyableMessageText(contextMenu.message);
+    if (!copyText) {
+      Alert.alert("Thông báo", "Tin nhắn này không có nội dung để sao chép");
+      return;
+    }
+
+    try {
+      await Clipboard.setStringAsync(copyText);
+      Alert.alert("Đã sao chép", "Nội dung tin nhắn đã được sao chép");
+    } catch {
+      Alert.alert("Lỗi", "Không thể sao chép tin nhắn");
+    } finally {
+      setContextMenu(null);
+    }
+  }, [contextMenu, getCopyableMessageText, isFileMessage]);
+
+  const handleOpenAttachment = useCallback(async (url: string) => {
+    if (!url) return;
+    const normalizedUrl = encodeURI(url);
+
+    try {
+      const supported = await WebBrowser.openBrowserAsync(normalizedUrl);
+      if (supported.type === "cancel" || supported.type === "dismiss") {
+        return;
+      }
+    } catch {
+      Alert.alert("Lỗi", "Không thể mở tệp này");
+    }
+  }, []);
+
+  const openImagePreview = useCallback((url?: string | null) => {
+    if (!url) return;
+    setPreviewImageError(null);
+    setPreviewImageLoading(true);
+    setPreviewImageUrl(encodeURI(url));
+  }, []);
+
   // ─── Render message ──────────────────────────────────────────────────────────
   const renderStructuredMessage = useCallback(
     (message: Message, isMine: boolean) => {
@@ -585,6 +770,20 @@ export default function ChatDetailScreen() {
       const payload = decodeChatPayload(message.content);
 
       if (!payload) {
+        if (message.imgUrl) {
+          return (
+            <TouchableOpacity
+              activeOpacity={0.9}
+              onPress={() => openImagePreview(message.imgUrl)}
+            >
+              <Image
+                source={{ uri: message.imgUrl }}
+                style={styles.imageMsg}
+                resizeMode="cover"
+              />
+            </TouchableOpacity>
+          );
+        }
         return <Text style={styles.msgText}>{message.content || ""}</Text>;
       }
 
@@ -610,20 +809,58 @@ export default function ChatDetailScreen() {
 
       if (payload.kind === "image" && payload.attachment?.url) {
         return (
-          <Image
-            source={{ uri: payload.attachment.url }}
-            style={styles.imageMsg}
-            resizeMode="cover"
-          />
+          <TouchableOpacity
+            activeOpacity={0.9}
+            onPress={() => openImagePreview(payload.attachment?.url)}
+          >
+            <Image
+              source={{ uri: payload.attachment.url }}
+              style={styles.imageMsg}
+              resizeMode="cover"
+            />
+          </TouchableOpacity>
         );
       }
 
       if (payload.kind === "file" && payload.attachment) {
-        return <Text style={styles.fileMsg}>📎 {payload.attachment.name}</Text>;
+        return (
+          <TouchableOpacity
+            style={styles.fileAction}
+            onPress={() => void handleOpenAttachment(payload.attachment!.url)}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.fileMsg}>📎 {payload.attachment.name}</Text>
+            <Text style={styles.fileHint}>Nhấn để mở tệp</Text>
+          </TouchableOpacity>
+        );
       }
 
       if (payload.kind === "audio" && payload.attachment?.url) {
-        return <Text style={styles.audioMsg}>🎵 Tin nhắn âm thanh</Text>;
+        const messageId = message._id?.toString() || message.createdAt;
+        const isPlaying = playingMessageId === messageId;
+        const isLoading = loadingAudioId === messageId;
+        return (
+          <TouchableOpacity
+            style={styles.audioPlayer}
+            onPress={() =>
+              void handleToggleAudioPlayback(messageId, payload.attachment!.url)
+            }
+            activeOpacity={0.8}
+          >
+            <View style={styles.audioPlayBtn}>
+              {isLoading ? (
+                <ActivityIndicator size="small" color="#1e293b" />
+              ) : isPlaying ? (
+                <Pause size={16} color="#1e293b" />
+              ) : (
+                <Play size={16} color="#1e293b" />
+              )}
+            </View>
+            <Text style={styles.audioMsg}>
+              {isPlaying ? "Đang phát ghi âm..." : "Nhấn để phát ghi âm"}
+            </Text>
+          </TouchableOpacity>
+        );
       }
 
       if (payload.kind === "sticker" && payload.stickerUrl) {
@@ -689,6 +926,18 @@ export default function ChatDetailScreen() {
                 </TouchableOpacity>
               );
             })}
+
+            <TouchableOpacity
+              style={styles.pollDetailBtn}
+              onPress={() =>
+                setVoteDetailModal({
+                  pollId: payload.poll!.id,
+                  activeOptionId: votedOption || payload.poll?.options[0]?.id || null,
+                })
+              }
+            >
+              <Text style={styles.pollDetailBtnText}>Xem người vote</Text>
+            </TouchableOpacity>
           </View>
         );
       }
@@ -699,12 +948,30 @@ export default function ChatDetailScreen() {
         </Text>
       );
     },
-    [handleVote, pollAggregates, user?.userId],
+    [
+      openImagePreview,
+      handleOpenAttachment,
+      handleToggleAudioPlayback,
+      handleVote,
+      loadingAudioId,
+      playingMessageId,
+      pollAggregates,
+      user?.userId,
+    ],
   );
 
   const renderMessage = useCallback(
     ({ item }: { item: Message }) => {
       const isMine = item.senderId === user?.userId;
+      const payload = decodeChatPayload(item.content);
+      const isPollCard = payload?.kind === "poll" && !!payload.poll && !item.isRecalled;
+      const isImageCard =
+        !item.isRecalled &&
+        ((payload?.kind === "image" && !!payload.attachment?.url) ||
+          (!payload && !!item.imgUrl));
+      const isFileCard = payload?.kind === "file" && !!payload.attachment;
+      const isAudioCard = payload?.kind === "audio" && !!payload.attachment?.url;
+      const isAttachmentCard = isFileCard || isAudioCard;
       const isLastRead =
         otherLastReadMessageId &&
         item._id?.toString() === otherLastReadMessageId.toString();
@@ -714,7 +981,15 @@ export default function ChatDetailScreen() {
           <View
             style={[
               styles.msgRow,
-              isMine ? styles.msgRowMine : styles.msgRowOther,
+              isPollCard
+                ? styles.msgRowPoll
+                : isImageCard
+                  ? isMine
+                    ? styles.msgRowMine
+                    : styles.msgRowOther
+                : isMine
+                  ? styles.msgRowMine
+                  : styles.msgRowOther,
             ]}
           >
             <TouchableOpacity
@@ -725,17 +1000,46 @@ export default function ChatDetailScreen() {
               delayLongPress={300}
               activeOpacity={0.85}
               style={[
-                styles.bubble,
-                item.isRecalled
-                  ? styles.recalledBubble
-                  : isMine
-                    ? styles.myBubble
-                    : styles.otherBubble,
+                isPollCard
+                  ? styles.pollCardShell
+                  : isImageCard
+                    ? styles.imageCardShell
+                    : isAttachmentCard
+                      ? styles.attachmentCardShell
+                    : styles.bubble,
+                !isPollCard &&
+                  !isImageCard &&
+                  !isAttachmentCard &&
+                  (item.isRecalled
+                    ? styles.recalledBubble
+                    : isMine
+                      ? styles.myBubble
+                      : styles.otherBubble),
               ]}
             >
               {renderStructuredMessage(item, isMine)}
-              <Text style={styles.msgTime}>{formatTime(item.createdAt)}</Text>
             </TouchableOpacity>
+          </View>
+
+          <View
+            style={[
+              styles.msgTimeRow,
+              isPollCard
+                ? styles.msgTimeRowCenter
+                : isMine
+                  ? styles.msgTimeRowMine
+                  : styles.msgTimeRowOther,
+            ]}
+          >
+            <Text
+              style={[
+                styles.msgTime,
+                isMine ? styles.msgTimeMine : styles.msgTimeOther,
+                (isFileCard || isAudioCard) && styles.msgTimeLightCard,
+              ]}
+            >
+              {formatTime(item.createdAt)}
+            </Text>
           </View>
 
           {/* Seen avatar */}
@@ -962,14 +1266,6 @@ export default function ChatDetailScreen() {
               >
                 <BarChart3 size={20} color="#94a3b8" />
               </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.actionIcon}
-                onPress={() =>
-                  setActivePopup((p) => (p === "emoji" ? null : "emoji"))
-                }
-              >
-                <Smile size={20} color="#94a3b8" />
-              </TouchableOpacity>
             </View>
 
             {/* Text input row */}
@@ -1048,6 +1344,65 @@ export default function ChatDetailScreen() {
               <Text style={styles.popupActionText}>Chọn tệp</Text>
             </TouchableOpacity>
           </View>
+        </Pressable>
+      </Modal>
+
+      {/* Full-screen image preview */}
+      <Modal
+        visible={!!previewImageUrl}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          setPreviewImageUrl(null);
+          setPreviewImageLoading(false);
+          setPreviewImageError(null);
+        }}
+      >
+        <Pressable
+          style={styles.previewRoot}
+          onPress={() => {
+            setPreviewImageUrl(null);
+            setPreviewImageLoading(false);
+            setPreviewImageError(null);
+          }}
+        >
+          <Pressable
+            style={styles.previewCloseBtn}
+            onPress={() => {
+              setPreviewImageUrl(null);
+              setPreviewImageLoading(false);
+              setPreviewImageError(null);
+            }}
+          >
+            <X size={20} color="#f8fafc" />
+          </Pressable>
+
+          {!!previewImageUrl && (
+            <Pressable style={styles.previewImageWrap} onPress={() => {}}>
+              {previewImageLoading && !previewImageError && (
+                <ActivityIndicator size="large" color="#bfdbfe" />
+              )}
+              {!!previewImageError && (
+                <Text style={styles.previewErrorText}>{previewImageError}</Text>
+              )}
+              <Image
+                source={{ uri: previewImageUrl }}
+                style={styles.previewImage}
+                resizeMode="contain"
+                onLoadStart={() => {
+                  setPreviewImageLoading(true);
+                  setPreviewImageError(null);
+                }}
+                onLoadEnd={() => {
+                  setPreviewImageLoading(false);
+                }}
+                onError={() => {
+                  setPreviewImageLoading(false);
+                  setPreviewImageError("Không tải được ảnh");
+                }}
+              />
+            </Pressable>
+          )}
         </Pressable>
       </Modal>
 
@@ -1159,37 +1514,6 @@ export default function ChatDetailScreen() {
         </Pressable>
       </Modal>
 
-      {/* Emoji popup */}
-      <Modal
-        visible={activePopup === "emoji"}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setActivePopup(null)}
-      >
-        <Pressable
-          style={styles.modalOverlay}
-          onPress={() => setActivePopup(null)}
-        >
-          <View style={styles.popupSheet}>
-            <Text style={styles.popupTitle}>Emoji</Text>
-            <View style={styles.emojiGrid}>
-              {EMOJI_LIST.map((emoji, i) => (
-                <TouchableOpacity
-                  key={i}
-                  style={styles.emojiItem}
-                  onPress={() => {
-                    setInput((prev) => prev + emoji);
-                    setActivePopup(null);
-                  }}
-                >
-                  <Text style={styles.emojiItemText}>{emoji}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </View>
-        </Pressable>
-      </Modal>
-
       {/* Poll popup */}
       <Modal
         visible={activePopup === "poll"}
@@ -1197,48 +1521,201 @@ export default function ChatDetailScreen() {
         animationType="slide"
         onRequestClose={() => setActivePopup(null)}
       >
-        <Pressable
-          style={styles.modalOverlay}
-          onPress={() => setActivePopup(null)}
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          keyboardVerticalOffset={Platform.OS === "ios" ? 12 : 0}
         >
-          <View style={[styles.popupSheet, { paddingBottom: 24 }]}>
-            <Text style={styles.popupTitle}>Tạo cuộc thăm dò</Text>
-            <TextInput
-              style={styles.pollInput}
-              placeholder="Câu hỏi bình chọn"
-              placeholderTextColor="#64748b"
-              value={pollQuestion}
-              onChangeText={setPollQuestion}
-            />
-            {pollOptions.map((opt, i) => (
-              <TextInput
-                key={i}
-                style={styles.pollInput}
-                placeholder={`Lựa chọn ${i + 1}`}
-                placeholderTextColor="#64748b"
-                value={opt}
-                onChangeText={(text) => {
-                  const next = [...pollOptions];
-                  next[i] = text;
-                  setPollOptions(next);
-                }}
-              />
-            ))}
-            <View style={styles.pollActions}>
-              <TouchableOpacity
-                style={styles.pollAddBtn}
-                onPress={() => setPollOptions((p) => [...p, ""])}
+          <Pressable
+            style={styles.modalOverlay}
+            onPress={() => setActivePopup(null)}
+          >
+            <Pressable onPress={() => {}}>
+              <View style={[styles.popupSheet, styles.pollPopupSheet]}>
+                <ScrollView
+                  keyboardShouldPersistTaps="handled"
+                  contentContainerStyle={styles.pollScrollContent}
+                  showsVerticalScrollIndicator={false}
+                >
+                  <Text style={styles.popupTitle}>Tạo cuộc thăm dò</Text>
+                  <TextInput
+                    style={styles.pollInput}
+                    placeholder="Câu hỏi bình chọn"
+                    placeholderTextColor="#64748b"
+                    value={pollQuestion}
+                    onChangeText={setPollQuestion}
+                  />
+                  {pollOptions.map((opt, i) => (
+                    <TextInput
+                      key={i}
+                      style={styles.pollInput}
+                      placeholder={`Lựa chọn ${i + 1}`}
+                      placeholderTextColor="#64748b"
+                      value={opt}
+                      onChangeText={(text) => {
+                        const next = [...pollOptions];
+                        next[i] = text;
+                        setPollOptions(next);
+                      }}
+                    />
+                  ))}
+                  <View style={styles.pollActions}>
+                    <TouchableOpacity
+                      style={styles.pollAddBtn}
+                      onPress={() => setPollOptions((p) => [...p, ""])}
+                    >
+                      <Text style={styles.pollAddBtnText}>+ Thêm</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.pollSubmitBtn}
+                      onPress={handleCreatePoll}
+                    >
+                      <Text style={styles.pollSubmitBtnText}>Tạo bình chọn</Text>
+                    </TouchableOpacity>
+                  </View>
+                </ScrollView>
+              </View>
+            </Pressable>
+          </Pressable>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {/* Vote detail modal */}
+      <Modal
+        visible={!!voteDetailModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setVoteDetailModal(null)}
+      >
+        <Pressable
+          style={[styles.modalOverlay, styles.voteModalOverlay]}
+          onPress={() => setVoteDetailModal(null)}
+        >
+          <Pressable onPress={() => {}}>
+            <View
+              style={[
+                styles.popupSheet,
+                styles.voteModalSheet,
+                { height: voteModalHeight },
+              ]}
+            >
+              <View style={styles.voteModalHeader}>
+                <Text style={[styles.popupTitle, { marginBottom: 0 }]}>Chi tiết vote</Text>
+                <TouchableOpacity
+                  style={styles.voteCloseBtn}
+                  onPress={() => setVoteDetailModal(null)}
+                >
+                  <X size={16} color="#cbd5e1" />
+                </TouchableOpacity>
+              </View>
+              {!!activeVotePoll?.question && (
+                <Text style={styles.voteModalQuestion} numberOfLines={2}>
+                  {activeVotePoll.question}
+                </Text>
+              )}
+
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.voteTabsRow}
               >
-                <Text style={styles.pollAddBtnText}>+ Thêm</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.pollSubmitBtn}
-                onPress={handleCreatePoll}
+                {(activeVotePoll?.options || []).map((option, idx) => {
+                  const count = activeVotePoll?.votes.filter(
+                    (v) => v.optionId === option.id,
+                  ).length;
+                  const isActive = option.id === activeVoteOptionId;
+
+                  return (
+                    <TouchableOpacity
+                      key={option.id}
+                      style={[styles.voteTab, isActive && styles.voteTabActive]}
+                      onPress={() =>
+                        setVoteDetailModal((prev) =>
+                          prev
+                            ? {
+                                ...prev,
+                                activeOptionId: option.id,
+                              }
+                            : prev,
+                        )
+                      }
+                    >
+                      <Text
+                        style={[
+                          styles.voteTabOption,
+                          isActive && styles.voteTabOptionActive,
+                        ]}
+                        numberOfLines={2}
+                      >
+                        {`${option.label} (${count} vote)`}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+
+              <ScrollView
+                style={styles.voteList}
+                contentContainerStyle={styles.voteListContent}
+                showsVerticalScrollIndicator={false}
               >
-                <Text style={styles.pollSubmitBtnText}>Tạo bình chọn</Text>
-              </TouchableOpacity>
+                {pagedVoteList.length > 0 ? (
+                  pagedVoteList.map((vote) => (
+                    <View
+                      key={`${vote.userId}-${vote.createdAt}`}
+                      style={styles.voteUserRow}
+                    >
+                      <Text style={styles.voteUserName}>
+                        {vote.userName ||
+                          activeConv?.participants.find(
+                            (p) => p._id === vote.userId,
+                          )?.displayName ||
+                          "Người dùng"}
+                      </Text>
+                      <Text style={styles.voteUserTime}>
+                        {formatTime(vote.createdAt)}
+                      </Text>
+                    </View>
+                  ))
+                ) : (
+                  <Text style={styles.voteEmptyText}>
+                    Chưa có người vote lựa chọn này
+                  </Text>
+                )}
+              </ScrollView>
+
+              {totalVotePages > 1 && (
+                <View style={styles.votePagerRow}>
+                  <TouchableOpacity
+                    style={[
+                      styles.votePagerBtn,
+                      votePage === 1 && styles.votePagerBtnDisabled,
+                    ]}
+                    onPress={() => setVotePage((p) => Math.max(1, p - 1))}
+                    disabled={votePage === 1}
+                  >
+                    <Text style={styles.votePagerBtnText}>Trang trước</Text>
+                  </TouchableOpacity>
+                  <Text style={styles.votePagerText}>
+                    Trang {votePage}/{totalVotePages}
+                  </Text>
+                  <TouchableOpacity
+                    style={[
+                      styles.votePagerBtn,
+                      votePage === totalVotePages &&
+                        styles.votePagerBtnDisabled,
+                    ]}
+                    onPress={() =>
+                      setVotePage((p) => Math.min(totalVotePages, p + 1))
+                    }
+                    disabled={votePage === totalVotePages}
+                  >
+                    <Text style={styles.votePagerBtnText}>Trang sau</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
             </View>
-          </View>
+          </Pressable>
         </Pressable>
       </Modal>
 
@@ -1254,6 +1731,18 @@ export default function ChatDetailScreen() {
           onPress={() => setContextMenu(null)}
         >
           <View style={styles.contextMenu}>
+            {contextMenu && !contextMenu.message.isRecalled && (
+              !isFileMessage(contextMenu.message) && (
+              <TouchableOpacity
+                style={styles.contextMenuItem}
+                onPress={() => void handleCopyMessage()}
+              >
+                <Copy size={16} color="#e2e8f0" />
+                <Text style={styles.contextMenuText}>Sao chép</Text>
+              </TouchableOpacity>
+              )
+            )}
+
             {contextMenu && !contextMenu.message.isRecalled && (
               <TouchableOpacity
                 style={styles.contextMenuItem}
@@ -1330,6 +1819,7 @@ const styles = StyleSheet.create({
   msgRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   msgRowMine: { justifyContent: "flex-end" },
   msgRowOther: { justifyContent: "flex-start" },
+  msgRowPoll: { justifyContent: "center" },
 
   // Bubble
   bubble: {
@@ -1338,6 +1828,27 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     borderWidth: 1,
     borderColor: "rgba(148,163,184,0.18)",
+  },
+  pollCardShell: {
+    width: "100%",
+    maxWidth: 420,
+    padding: 0,
+    borderWidth: 0,
+    backgroundColor: "transparent",
+  },
+  imageCardShell: {
+    maxWidth: 220,
+    padding: 0,
+    borderWidth: 0,
+    backgroundColor: "transparent",
+    borderRadius: 0,
+  },
+  attachmentCardShell: {
+    maxWidth: "78%",
+    padding: 0,
+    borderWidth: 0,
+    backgroundColor: "transparent",
+    borderRadius: 0,
   },
   myBubble: {
     backgroundColor: "#1d4ed8",
@@ -1353,12 +1864,27 @@ const styles = StyleSheet.create({
     borderColor: "rgba(148,163,184,0.45)",
   },
   msgText: { color: "white", fontSize: 15, lineHeight: 21 },
-  msgTime: {
-    color: "rgba(255,255,255,0.45)",
-    fontSize: 10,
+  msgTimeRow: {
     marginTop: 4,
-    textAlign: "right",
   },
+  msgTimeRowMine: {
+    alignItems: "flex-end",
+    paddingRight: 6,
+  },
+  msgTimeRowOther: {
+    alignItems: "flex-start",
+    paddingLeft: 6,
+  },
+  msgTimeRowCenter: {
+    alignItems: "center",
+  },
+  msgTime: {
+    fontSize: 10,
+    fontWeight: "500",
+  },
+  msgTimeMine: { color: "#cbd5e1" },
+  msgTimeOther: { color: "#94a3b8" },
+  msgTimeLightCard: { color: "#64748b" },
   recalledText: { color: "#94a3b8", fontStyle: "italic", fontSize: 13 },
 
   // Seen
@@ -1405,8 +1931,42 @@ const styles = StyleSheet.create({
   imageMsg: { width: 200, height: 200, borderRadius: 12 },
 
   // File / audio
-  fileMsg: { color: "#bfdbfe", fontSize: 14 },
-  audioMsg: { color: "#bfdbfe", fontSize: 14 },
+  fileMsg: { color: "#1e40af", fontSize: 14, fontWeight: "600" },
+  fileAction: {
+    borderWidth: 1,
+    borderColor: "rgba(148,163,184,0.38)",
+    backgroundColor: "#f8fafc",
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    gap: 4,
+  },
+  fileHint: {
+    color: "#64748b",
+    fontSize: 11,
+  },
+  audioMsg: { color: "#0f172a", fontSize: 14, fontWeight: "600" },
+  audioPlayer: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    borderWidth: 1,
+    borderColor: "rgba(148,163,184,0.38)",
+    backgroundColor: "#f8fafc",
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  audioPlayBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(148,163,184,0.38)",
+    backgroundColor: "rgba(15,23,42,0.06)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
 
   // Sticker
   stickerMsg: { width: 120, height: 120 },
@@ -1460,6 +2020,150 @@ const styles = StyleSheet.create({
   pollOptionLabelVoted: { color: "#818cf8" },
   pollPercent: { color: "#71717a", fontWeight: "700", fontSize: 12 },
   pollPercentVoted: { color: "#818cf8" },
+  pollDetailBtn: {
+    marginTop: 4,
+    borderWidth: 1,
+    borderColor: "rgba(96,165,250,0.35)",
+    backgroundColor: "rgba(37,99,235,0.12)",
+    borderRadius: 10,
+    paddingVertical: 9,
+    alignItems: "center",
+  },
+  pollDetailBtnText: {
+    color: "#bfdbfe",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+
+  voteModalOverlay: {
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 14,
+  },
+  voteModalSheet: {
+    width: "92%",
+    borderRadius: 18,
+    paddingBottom: 10,
+  },
+  voteModalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 10,
+  },
+  voteCloseBtn: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "rgba(148,163,184,0.25)",
+    backgroundColor: "rgba(15,23,42,0.3)",
+  },
+  voteModalQuestion: {
+    color: "#cbd5e1",
+    fontSize: 13,
+    marginBottom: 12,
+  },
+  voteTabsRow: {
+    gap: 8,
+    paddingBottom: 10,
+  },
+  voteTab: {
+    width: 200,
+    height: 50,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(148,163,184,0.25)",
+    backgroundColor: "rgba(255,255,255,0.04)",
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+  },
+  voteTabActive: {
+    borderColor: "rgba(96,165,250,0.5)",
+    backgroundColor: "rgba(37,99,235,0.18)",
+  },
+  voteTabTitle: {
+    color: "#e2e8f0",
+    fontSize: 11,
+    fontWeight: "700",
+    marginBottom: 2,
+  },
+  voteTabTitleActive: {
+    color: "#dbeafe",
+  },
+  voteTabOption: {
+    color: "#cbd5e1",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  voteTabOptionActive: {
+    color: "#dbeafe",
+  },
+  voteList: {
+    flex: 1,
+  },
+  voteListContent: {
+    gap: 8,
+    paddingBottom: 6,
+  },
+  voteUserRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "rgba(148,163,184,0.15)",
+    backgroundColor: "rgba(15,23,42,0.38)",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  voteUserName: {
+    color: "#f1f5f9",
+    fontSize: 13,
+    fontWeight: "600",
+    flex: 1,
+    marginRight: 8,
+  },
+  voteUserTime: {
+    color: "#94a3b8",
+    fontSize: 11,
+  },
+  voteEmptyText: {
+    color: "#94a3b8",
+    textAlign: "center",
+    paddingVertical: 18,
+    fontSize: 13,
+  },
+  votePagerRow: {
+    marginTop: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+  },
+  votePagerBtn: {
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "rgba(148,163,184,0.28)",
+    backgroundColor: "rgba(30,41,59,0.45)",
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+  },
+  votePagerBtnDisabled: {
+    opacity: 0.45,
+  },
+  votePagerBtnText: {
+    color: "#cbd5e1",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  votePagerText: {
+    color: "#94a3b8",
+    fontSize: 12,
+    fontWeight: "600",
+  },
 
   // Stranger
   strangerWaiting: {
@@ -1658,18 +2362,6 @@ const styles = StyleSheet.create({
   },
   stickerImg: { width: "100%", height: 80 },
 
-  // Emoji picker
-  emojiGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  emojiItem: {
-    width: 44,
-    height: 44,
-    borderRadius: 10,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(255,255,255,0.05)",
-  },
-  emojiItemText: { fontSize: 24 },
-
   // Poll inputs
   pollInput: {
     borderWidth: 0.5,
@@ -1683,6 +2375,12 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   pollActions: { flexDirection: "row", gap: 8, marginTop: 6 },
+  pollPopupSheet: {
+    maxHeight: "72%",
+  },
+  pollScrollContent: {
+    paddingBottom: Platform.OS === "ios" ? 8 : 16,
+  },
   pollAddBtn: {
     borderWidth: 0.5,
     borderColor: "rgba(148,163,184,0.25)",
@@ -1700,6 +2398,43 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   pollSubmitBtnText: { color: "white", fontWeight: "600", fontSize: 13 },
+
+  // Full screen preview
+  previewRoot: {
+    flex: 1,
+    backgroundColor: "rgba(2,6,23,0.98)",
+  },
+  previewCloseBtn: {
+    position: "absolute",
+    top: Platform.OS === "ios" ? 56 : 26,
+    right: 16,
+    zIndex: 2,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(15,23,42,0.72)",
+    borderWidth: 1,
+    borderColor: "rgba(148,163,184,0.26)",
+  },
+  previewImageWrap: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 10,
+    paddingVertical: 18,
+  },
+  previewErrorText: {
+    color: "#cbd5e1",
+    fontSize: 14,
+    marginBottom: 10,
+    textAlign: "center",
+  },
+  previewImage: {
+    width: "100%",
+    height: "100%",
+  },
 
   // Context menu
   contextMenu: {
