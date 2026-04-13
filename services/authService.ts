@@ -1,4 +1,5 @@
 import { getDeviceId } from "@/utils/device";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import api from "../lib/axios";
 
 export interface SignInData {
@@ -18,16 +19,15 @@ export const authService = {
   signIn: async (data: SignInData) => {
     const deviceId = await getDeviceId(); // thêm dòng này
 
-    const res = await api.post(
-      "/auth/signin",
-      {
-        ...data,
-        deviceId, // gửi lên backend
-      },
-      {
-        withCredentials: true,
-      },
-    );
+    const res = await api.post("/auth/signin", {
+      ...data,
+      deviceId,
+    });
+    console.log("signIn response:", res.data);
+
+    if (res.data.refreshToken) {
+      await AsyncStorage.setItem("refreshToken", res.data.refreshToken);
+    }
 
     return res.data;
   },
@@ -40,14 +40,19 @@ export const authService = {
   },
 
   signOut: async () => {
-    const res = await api.post(
-      "/auth/signout",
-      {},
-      {
-        withCredentials: true,
-      },
-    );
-    return res.data;
+    const deviceId = await getDeviceId();
+    const refreshToken = await AsyncStorage.getItem("refreshToken");
+    console.log("refreshToken từ storage:", refreshToken);
+
+    try {
+      const res = await api.post("/auth/signout", { deviceId, refreshToken });
+      await AsyncStorage.removeItem("refreshToken");
+      return res.data;
+    } catch (error: any) {
+      console.log("Status:", error?.response?.status);
+      console.log("Message:", error?.response?.data);
+      throw error;
+    }
   },
 
   getCurrentUser: async () => {
@@ -57,7 +62,9 @@ export const authService = {
   },
 
   refresh: async () => {
-    const res = await api.post("/auth/refresh", { withCredentials: true });
+    const refreshToken = await AsyncStorage.getItem("refreshToken");
+
+    const res = await api.post("/auth/refresh", { refreshToken });
     return res.data.accessToken;
   },
 };

@@ -1,6 +1,7 @@
 import api from "@/lib/axios";
 import { authService } from "@/services/authService";
 import { userService } from "@/services/userService";
+import { useAuthStore } from "@/stores/useAuthStore";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
@@ -735,7 +736,6 @@ function DeleteAccountModal({
   );
 }
 
-// ─── MAIN SCREEN ───────────────────────────────────────────────────────────────
 export default function ProfileScreen({ navigation }: { navigation: any }) {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
@@ -744,6 +744,7 @@ export default function ProfileScreen({ navigation }: { navigation: any }) {
   const [showChangePw, setShowChangePw] = useState(false);
   const [showDeleteAccount, setShowDeleteAccount] = useState(false);
   const router = useRouter();
+  const signOut = useAuthStore((s) => s.signOut);
 
   const loadProfile = useCallback(async () => {
     setLoading(false);
@@ -809,7 +810,14 @@ export default function ProfileScreen({ navigation }: { navigation: any }) {
       {
         text: "Đăng xuất",
         style: "destructive",
-        onPress: () => router.replace("/(auth)/signin"),
+        onPress: async () => {
+          try {
+            await signOut();
+            router.replace("/(auth)/signin");
+          } catch (error) {
+            Alert.alert("Lỗi", "Đăng xuất thất bại, vui lòng thử lại");
+          }
+        },
       },
     ]);
   };
