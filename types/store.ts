@@ -32,6 +32,7 @@ export interface ChatState {
       content?: string;
       imgUrl?: string;
     },
+    conversationId?: string,
   ) => Promise<void>;
   sendGroupMessage: (
     conversationId: string,
