@@ -99,6 +99,24 @@ export const useAuthStore = create<AuthState>()(
         }
       },
 
+      fetchMe: async () => {
+        try {
+          set({ loading: true });
+          const user = await authService.fetchMe();
+          set({ user });
+        } catch (error) {
+          console.error(error);
+          set({ user: null, accessToken: null });
+          Toast.show({
+            type: "error",
+            text1: "Lỗi",
+            text2: "Lỗi xảy ra khi lấy dữ liệu người dùng. Hãy thử lại!",
+          });
+        } finally {
+          set({ loading: false });
+        }
+      },
+
       signUp: async (data: SignUpData) => {
         set({ loading: true, error: null });
         try {
