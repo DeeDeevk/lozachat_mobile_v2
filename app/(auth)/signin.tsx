@@ -91,16 +91,13 @@ export default function SignInScreen() {
           <Animated.View entering={FadeInDown.delay(200)} style={styles.header}>
             <View style={styles.logoOuterGlow}>
               <View style={styles.logoWrapper}>
-                <LinearGradient
-                  colors={["#2563eb", "#3b82f6"]}
-                  style={styles.logoGradient}
-                >
-                  <Image
-                    source={require("../../assets/images/icon.png")}
-                    style={styles.mainLogo}
-                    resizeMode="contain"
-                  />
-                </LinearGradient>
+                {/* ── ĐÃ XÓA LINEARGRADIENT Ở ĐÂY ── */}
+                <Image
+                  source={require("../../assets/images/icon.png")}
+                  // Cập nhật style cho ảnh để nó căn giữa
+                  style={styles.mainLogoTransparent}
+                  resizeMode="contain"
+                />
               </View>
             </View>
             <Text style={styles.appTitle}>Loza</Text>
@@ -250,6 +247,36 @@ const styles = StyleSheet.create({
     shadowRadius: 20,
     elevation: 10,
   },
+  header: {
+    alignItems: "center",
+    marginBottom: 32,
+    marginTop: 20,
+  },
+  logoOuterGlow: {
+    padding: 8,
+    borderRadius: 28,
+    // Đổ bóng màu xanh tạo hiệu ứng phát sáng (Glow) quanh khung
+    shadowColor: "#3b82f6",
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.8, // Tăng nhẹ độ đậm của glow
+    shadowRadius: 20,
+    elevation: 25,
+  },
+  logoWrapper: {
+    width: 80, // Tăng nhẹ kích thước khung
+    height: 80,
+    borderRadius: 20,
+    // XÓA overflow: "hidden" ở đây
+    justifyContent: "center", // Căn giữa ảnh
+    alignItems: "center",
+    borderWidth: 1.5, // Tăng nhẹ độ dày viền
+    borderColor: "rgba(59, 130, 246, 0.3)", // Dùng màu viền xanh mờ
+    backgroundColor: "transparent", // Đảm bảo nền trong suốt
+  },
+  mainLogoTransparent: {
+    width: "85%",
+    height: "85%",
+  },
   container: { flex: 1, backgroundColor: "#060d1f" },
   bgGlowContainer: { ...StyleSheet.absoluteFillObject, overflow: "hidden" },
   glow: {
@@ -264,30 +291,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingTop: 60,
     paddingBottom: 40,
-  },
-  header: {
-    alignItems: "center",
-    marginBottom: 32,
-    marginTop: 20, // Tạo khoảng cách với đỉnh màn hình
-  },
-  logoOuterGlow: {
-    padding: 8,
-    borderRadius: 28,
-    backgroundColor: "rgba(37,99,235,0.05)", // Một lớp nền mờ rất nhẹ
-    // Đổ bóng màu xanh tạo hiệu ứng phát sáng (Glow)
-    shadowColor: "#3b82f6",
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.6,
-    shadowRadius: 15,
-    elevation: 20, // Hiển thị glow rõ hơn trên Android
-  },
-  logoWrapper: {
-    width: 72,
-    height: 72,
-    borderRadius: 20,
-    overflow: "hidden",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.15)",
   },
   logoGradient: {
     flex: 1,
