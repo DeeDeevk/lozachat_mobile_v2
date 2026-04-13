@@ -91,23 +91,29 @@ export const useChatStore = create<ChatState>()(
         }
       },
 
-      sendDirectMessage: async (recipientId, payload) => {
+      sendDirectMessage: async (recipientId, payload, conversationId) => {
         try {
-          const { activeConversationId } = get();
+          // ƯU TIÊN conversationId truyền vào (dùng cho forward),
+          // nếu không có mới lấy cái đang mở (active)
+          const targetConvId = conversationId ?? get().activeConversationId;
+
           await chatService.sendDirecrMessages(
             recipientId,
             payload?.content || "",
             payload?.imgUrl || "",
-            activeConversationId || undefined,
+            targetConvId || undefined,
           );
 
-          set((state) => ({
-            conversations: state.conversations.map((c) =>
-              c._id === activeConversationId ? { ...c, seenBy: [] } : c,
-            ),
-          }));
+          // Cập nhật UI cho đúng hội thoại đó
+          if (targetConvId) {
+            set((state) => ({
+              conversations: state.conversations.map((c) =>
+                c._id === targetConvId ? { ...c, seenBy: [] } : c,
+              ),
+            }));
+          }
         } catch (error) {
-          console.error("Lỗi xảy ra khi gửi direct message", error);
+          console.error("Lỗi gửi tin nhắn:", error);
         }
       },
 
@@ -372,6 +378,38 @@ export const useChatStore = create<ChatState>()(
         } catch (error) {
           console.error("Lỗi khi update trạng thái người lạ: ", error);
           throw error;
+        }
+      },
+      forwardMessage: async (message, targetConversationIds) => {
+        const { sendDirectMessage, sendGroupMessage, conversations } = get();
+        const { user } = useAuthStore.getState();
+        const myId = user?.userId;
+
+        // Sử dụng for...of để đảm bảo thứ tự gửi tin nhắn chính xác
+        for (const convId of targetConversationIds) {
+          const targetConv = conversations.find((c) => c._id === convId);
+          if (!targetConv) continue;
+
+          const payload = {
+            content: message.content,
+            imgUrl: message.imgUrl || undefined,
+          };
+
+          try {
+            if (targetConv.type === "group") {
+              await sendGroupMessage(convId, payload);
+            } else {
+              const otherParticipant = targetConv.participants.find(
+                (p) => p._id !== myId,
+              );
+              if (otherParticipant) {
+                // QUAN TRỌNG: Truyền convId vào tham số thứ 3
+                await sendDirectMessage(otherParticipant._id, payload, convId);
+              }
+            }
+          } catch (err) {
+            console.error(`Lỗi khi gửi tới hội thoại ${convId}:`, err);
+          }
         }
       },
     }),

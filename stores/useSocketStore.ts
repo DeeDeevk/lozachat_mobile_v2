@@ -126,22 +126,19 @@ export const useSocketStore = create<SocketState>((set, get) => ({
   onlineUsers: [],
 
   connectSocket: () => {
+    console.log("CONNECT SOCKET CALLED");
     const accessToken = useAuthStore.getState().accessToken;
-    if (!accessToken) return;
-
     const existingSocket = get().socket;
 
-    // Nếu socket cũ còn sống thì dùng lại, chỉ đăng ký lại event
+    // ← Nếu socket cũ còn sống thì dùng lại, chỉ register events
     if (existingSocket?.connected) {
       registerSocketEvents(existingSocket, set);
       return;
     }
 
-    console.log("🌐 Đang khởi tạo kết nối Socket...");
-    const socket: Socket = io(baseURL as string, {
-      auth: { token: accessToken }, // Gửi token qua handshake giống FE React
+    const socket: Socket = io(baseURL, {
+      auth: { token: accessToken },
       transports: ["websocket"],
-      forceNew: true,
     });
 
     set({ socket });
@@ -151,7 +148,6 @@ export const useSocketStore = create<SocketState>((set, get) => ({
   disconnectSocket: () => {
     const socket = get().socket;
     if (socket) {
-      console.log("🔌 Ngắt kết nối socket");
       socket.disconnect();
       set({ socket: null, onlineUsers: [] });
     }
