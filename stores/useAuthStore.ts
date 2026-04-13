@@ -130,12 +130,14 @@ export const useAuthStore = create<AuthState>()(
         } catch (error) {
           console.error("Lỗi đăng xuất:", error);
         } finally {
+          useSocketStore.getState().disconnectSocket();
           set({
             accessToken: null,
             user: null,
             userProfile: null,
             error: null,
           });
+
           Toast.show({
             type: "success",
             text1: "Thông báo",
@@ -206,8 +208,7 @@ export const useAuthStore = create<AuthState>()(
           loading: false,
           userProfile: null,
         });
-        AsyncStorage.clear(); // Thay cho localStorage.clear()
-        // useChatStore.getState().reset();
+        AsyncStorage.removeItem("auth-storage");
       },
     }),
     {

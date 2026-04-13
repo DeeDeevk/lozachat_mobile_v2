@@ -1,14 +1,26 @@
 import ConversationList from "@/components/ConversationList";
+import SearchUserModal from "@/components/SearchUserModal";
 import { useChatStore } from "@/stores/useChatStore";
+import { useAuthStore } from "@/stores/useAuthStore";
+import { useFriendStore } from "@/stores/useFriendStore";
 import { useRouter } from "expo-router";
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { SafeAreaView, StyleSheet, View } from "react-native";
 
 export default function ConversationScreen() {
   const { conversations, fetchConversations } = useChatStore();
+  const { getAllFriendRequest } = useFriendStore();
   const router = useRouter();
+  const [showSearchModal, setShowSearchModal] = useState(false);
 
   useEffect(() => {
+    const token = useAuthStore.getState().accessToken;
+    if (!token) {
+      setTimeout(() => {
+        router.replace('/(auth)/signin');
+      }, 0);
+      return;
+    }
     fetchConversations();
   }, []);
 
@@ -23,6 +35,12 @@ export default function ConversationScreen() {
         <ConversationList
           conversations={conversations}
           onSelectConversation={handleSelect}
+          onOpenSearch={() => setShowSearchModal(true)}
+        />
+        <SearchUserModal
+          isOpen={showSearchModal}
+          onClose={() => setShowSearchModal(false)}
+          onRequestSent={() => getAllFriendRequest()}
         />
       </SafeAreaView>
     </View>
