@@ -747,7 +747,7 @@ export default function ProfileScreen({ navigation }: { navigation: any }) {
   const signOut = useAuthStore((s) => s.signOut);
 
   const loadProfile = useCallback(async () => {
-    setLoading(false);
+    // setLoading(false);
     // setProfile({
     //   _id: '1',
     //   username: 'khoa123',

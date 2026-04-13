@@ -1,6 +1,7 @@
 import ConversationList from "@/components/ConversationList";
 import SearchUserModal from "@/components/SearchUserModal";
 import { useChatStore } from "@/stores/useChatStore";
+import { useAuthStore } from "@/stores/useAuthStore";
 import { useFriendStore } from "@/stores/useFriendStore";
 import { useRouter } from "expo-router";
 import React, { useEffect, useState } from "react";
@@ -13,6 +14,13 @@ export default function ConversationScreen() {
   const [showSearchModal, setShowSearchModal] = useState(false);
 
   useEffect(() => {
+    const token = useAuthStore.getState().accessToken;
+    if (!token) {
+      setTimeout(() => {
+        router.replace('/(auth)/signin');
+      }, 0);
+      return;
+    }
     fetchConversations();
   }, []);
 
