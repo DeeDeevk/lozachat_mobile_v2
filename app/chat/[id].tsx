@@ -18,8 +18,8 @@ import * as Clipboard from "expo-clipboard";
 import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
 import { LinearGradient } from "expo-linear-gradient";
-import * as WebBrowser from "expo-web-browser";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import * as WebBrowser from "expo-web-browser";
 import {
   BarChart3,
   ChevronLeft,
@@ -147,7 +147,9 @@ export default function ChatDetailScreen() {
   const [votePage, setVotePage] = useState(1);
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
   const [previewImageLoading, setPreviewImageLoading] = useState(false);
-  const [previewImageError, setPreviewImageError] = useState<string | null>(null);
+  const [previewImageError, setPreviewImageError] = useState<string | null>(
+    null,
+  );
 
   // Audio recording
   const [isRecording, setIsRecording] = useState(false);
@@ -157,6 +159,12 @@ export default function ChatDetailScreen() {
   const soundRef = useRef<Audio.Sound | null>(null);
   const [playingMessageId, setPlayingMessageId] = useState<string | null>(null);
   const [loadingAudioId, setLoadingAudioId] = useState<string | null>(null);
+  const [isForwardModalOpen, setIsForwardModalOpen] = useState(false);
+  const [forwardingMessage, setForwardingMessage] = useState<Message | null>(
+    null,
+  );
+  const [forwardSearch, setForwardSearch] = useState("");
+  const [selectedConvs, setSelectedConvs] = useState<string[]>([]);
 
   const {
     messages,
@@ -170,6 +178,7 @@ export default function ChatDetailScreen() {
     uploadAttachment,
     typingUsersByConv,
     updateStrangerStatus,
+    forwardMessage,
   } = useChatStore();
 
   const { user, userProfile } = useAuthStore();
@@ -768,7 +777,9 @@ export default function ChatDetailScreen() {
       }
 
       const payload = decodeChatPayload(message.content);
-
+      const openMenu = () => {
+        setContextMenu({ message: message, visible: true });
+      };
       if (!payload) {
         if (message.imgUrl) {
           return (
@@ -812,6 +823,8 @@ export default function ChatDetailScreen() {
           <TouchableOpacity
             activeOpacity={0.9}
             onPress={() => openImagePreview(payload.attachment?.url)}
+            onLongPress={openMenu} // THÊM DÒNG NÀY
+            delayLongPress={300}
           >
             <Image
               source={{ uri: payload.attachment.url }}
@@ -822,12 +835,13 @@ export default function ChatDetailScreen() {
         );
       }
 
-      if (payload.kind === "file" && payload.attachment) {
+      if (payload?.kind === "file" && payload.attachment) {
         return (
           <TouchableOpacity
             style={styles.fileAction}
             onPress={() => void handleOpenAttachment(payload.attachment!.url)}
-            activeOpacity={0.8}
+            onLongPress={openMenu} // THÊM DÒNG NÀY
+            delayLongPress={300}
           >
             <Text style={styles.fileMsg}>📎 {payload.attachment.name}</Text>
             <Text style={styles.fileHint}>Nhấn để mở tệp</Text>
@@ -932,7 +946,8 @@ export default function ChatDetailScreen() {
               onPress={() =>
                 setVoteDetailModal({
                   pollId: payload.poll!.id,
-                  activeOptionId: votedOption || payload.poll?.options[0]?.id || null,
+                  activeOptionId:
+                    votedOption || payload.poll?.options[0]?.id || null,
                 })
               }
             >
@@ -964,13 +979,15 @@ export default function ChatDetailScreen() {
     ({ item }: { item: Message }) => {
       const isMine = item.senderId === user?.userId;
       const payload = decodeChatPayload(item.content);
-      const isPollCard = payload?.kind === "poll" && !!payload.poll && !item.isRecalled;
+      const isPollCard =
+        payload?.kind === "poll" && !!payload.poll && !item.isRecalled;
       const isImageCard =
         !item.isRecalled &&
         ((payload?.kind === "image" && !!payload.attachment?.url) ||
           (!payload && !!item.imgUrl));
       const isFileCard = payload?.kind === "file" && !!payload.attachment;
-      const isAudioCard = payload?.kind === "audio" && !!payload.attachment?.url;
+      const isAudioCard =
+        payload?.kind === "audio" && !!payload.attachment?.url;
       const isAttachmentCard = isFileCard || isAudioCard;
       const isLastRead =
         otherLastReadMessageId &&
@@ -987,9 +1004,9 @@ export default function ChatDetailScreen() {
                   ? isMine
                     ? styles.msgRowMine
                     : styles.msgRowOther
-                : isMine
-                  ? styles.msgRowMine
-                  : styles.msgRowOther,
+                  : isMine
+                    ? styles.msgRowMine
+                    : styles.msgRowOther,
             ]}
           >
             <TouchableOpacity
@@ -1006,7 +1023,7 @@ export default function ChatDetailScreen() {
                     ? styles.imageCardShell
                     : isAttachmentCard
                       ? styles.attachmentCardShell
-                    : styles.bubble,
+                      : styles.bubble,
                 !isPollCard &&
                   !isImageCard &&
                   !isAttachmentCard &&
@@ -1570,7 +1587,9 @@ export default function ChatDetailScreen() {
                       style={styles.pollSubmitBtn}
                       onPress={handleCreatePoll}
                     >
-                      <Text style={styles.pollSubmitBtnText}>Tạo bình chọn</Text>
+                      <Text style={styles.pollSubmitBtnText}>
+                        Tạo bình chọn
+                      </Text>
                     </TouchableOpacity>
                   </View>
                 </ScrollView>
@@ -1600,7 +1619,9 @@ export default function ChatDetailScreen() {
               ]}
             >
               <View style={styles.voteModalHeader}>
-                <Text style={[styles.popupTitle, { marginBottom: 0 }]}>Chi tiết vote</Text>
+                <Text style={[styles.popupTitle, { marginBottom: 0 }]}>
+                  Chi tiết vote
+                </Text>
                 <TouchableOpacity
                   style={styles.voteCloseBtn}
                   onPress={() => setVoteDetailModal(null)}
@@ -1731,17 +1752,17 @@ export default function ChatDetailScreen() {
           onPress={() => setContextMenu(null)}
         >
           <View style={styles.contextMenu}>
-            {contextMenu && !contextMenu.message.isRecalled && (
+            {contextMenu &&
+              !contextMenu.message.isRecalled &&
               !isFileMessage(contextMenu.message) && (
-              <TouchableOpacity
-                style={styles.contextMenuItem}
-                onPress={() => void handleCopyMessage()}
-              >
-                <Copy size={16} color="#e2e8f0" />
-                <Text style={styles.contextMenuText}>Sao chép</Text>
-              </TouchableOpacity>
-              )
-            )}
+                <TouchableOpacity
+                  style={styles.contextMenuItem}
+                  onPress={() => void handleCopyMessage()}
+                >
+                  <Copy size={16} color="#e2e8f0" />
+                  <Text style={styles.contextMenuText}>Sao chép</Text>
+                </TouchableOpacity>
+              )}
 
             {contextMenu && !contextMenu.message.isRecalled && (
               <TouchableOpacity
@@ -1755,6 +1776,18 @@ export default function ChatDetailScreen() {
                 <Text style={styles.contextMenuText}>Trả lời</Text>
               </TouchableOpacity>
             )}
+
+            <TouchableOpacity
+              style={styles.contextMenuItem}
+              onPress={() => {
+                setForwardingMessage(contextMenu.message); // Gán tin nhắn cần forward
+                setIsForwardModalOpen(true); // Mở Modal chọn người nhận
+                setContextMenu(null); // Đóng Context Menu
+              }}
+            >
+              <Send size={16} color="#e2e8f0" />
+              <Text style={styles.contextMenuText}>Chuyển tiếp</Text>
+            </TouchableOpacity>
 
             {contextMenu && canRecall(contextMenu.message) && (
               <TouchableOpacity
@@ -1779,6 +1812,160 @@ export default function ChatDetailScreen() {
             )}
           </View>
         </Pressable>
+      </Modal>
+      {/* Modal Chuyển tiếp tin nhắn */}
+      <Modal
+        visible={isForwardModalOpen && !!forwardingMessage}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setIsForwardModalOpen(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View
+            style={[
+              styles.popupSheet,
+              {
+                height: "70%",
+                borderTopLeftRadius: 24,
+                borderTopRightRadius: 24,
+              },
+            ]}
+          >
+            <View style={styles.audioHeader}>
+              <Text style={styles.popupTitle}>Chuyển tiếp tới...</Text>
+              <TouchableOpacity
+                onPress={() => {
+                  setIsForwardModalOpen(false);
+                  setSelectedConvs([]);
+                }}
+              >
+                <X size={24} color="#94a3b8" />
+              </TouchableOpacity>
+            </View>
+
+            <TextInput
+              placeholder="Tìm hội thoại..."
+              placeholderTextColor="#64748b"
+              value={forwardSearch}
+              onChangeText={setForwardSearch}
+              style={[styles.pollInput, { marginBottom: 15 }]}
+            />
+
+            <ScrollView
+              style={{ flex: 1 }}
+              showsVerticalScrollIndicator={false}
+            >
+              {conversations
+                .filter((c) => {
+                  const name =
+                    c.group?.name ||
+                    c.participants.find((p) => p._id !== user?.userId)
+                      ?.displayName ||
+                    "";
+                  return name
+                    .toLowerCase()
+                    .includes(forwardSearch.toLowerCase());
+                })
+                .map((conv) => {
+                  const isSelected = selectedConvs.includes(conv._id);
+                  const chatName =
+                    conv.group?.name ||
+                    conv.participants.find((p) => p._id !== user?.userId)
+                      ?.displayName ||
+                    "Đoạn chat";
+
+                  return (
+                    <TouchableOpacity
+                      key={conv._id}
+                      style={[
+                        styles.popupAction,
+                        isSelected && {
+                          borderColor: "#2563eb",
+                          backgroundColor: "rgba(37,99,235,0.1)",
+                        },
+                      ]}
+                      onPress={() => {
+                        if (isSelected) {
+                          setSelectedConvs((prev) =>
+                            prev.filter((id) => id !== conv._id),
+                          );
+                        } else {
+                          setSelectedConvs((prev) => [...prev, conv._id]);
+                        }
+                      }}
+                    >
+                      <View
+                        style={{
+                          width: 20,
+                          height: 20,
+                          borderRadius: 6,
+                          borderWidth: 2,
+                          borderColor: isSelected ? "#2563eb" : "#475569",
+                          backgroundColor: isSelected
+                            ? "#2563eb"
+                            : "transparent",
+                          justifyContent: "center",
+                          alignItems: "center",
+                        }}
+                      >
+                        {isSelected && (
+                          <Text style={{ color: "white", fontSize: 12 }}>
+                            ✓
+                          </Text>
+                        )}
+                      </View>
+                      <Text
+                        style={[
+                          styles.popupActionText,
+                          isSelected && { color: "white", fontWeight: "600" },
+                        ]}
+                      >
+                        {chatName}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+            </ScrollView>
+
+            <View style={{ flexDirection: "row", gap: 12, marginTop: 20 }}>
+              <TouchableOpacity
+                style={[styles.pollAddBtn, { flex: 1, alignItems: "center" }]}
+                onPress={() => {
+                  setIsForwardModalOpen(false);
+                  setSelectedConvs([]);
+                }}
+              >
+                <Text style={styles.pollAddBtnText}>Hủy</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                disabled={selectedConvs.length === 0 || sending}
+                style={[
+                  styles.pollSubmitBtn,
+                  { flex: 2, opacity: selectedConvs.length === 0 ? 0.5 : 1 },
+                ]}
+                onPress={async () => {
+                  setSending(true);
+                  try {
+                    await forwardMessage(forwardingMessage!, selectedConvs);
+                    setIsForwardModalOpen(false);
+                    setSelectedConvs([]);
+                    setForwardingMessage(null);
+                    Alert.alert("Thành công", "Đã chuyển tiếp tin nhắn");
+                  } catch (err) {
+                    Alert.alert("Lỗi", "Không thể chuyển tiếp tin nhắn");
+                  } finally {
+                    setSending(false);
+                  }
+                }}
+              >
+                <Text style={styles.pollSubmitBtnText}>
+                  {sending ? "Đang gửi..." : `Gửi (${selectedConvs.length})`}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
       </Modal>
     </View>
   );
