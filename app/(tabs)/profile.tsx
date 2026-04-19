@@ -769,6 +769,7 @@ export default function ProfileScreen({ navigation }: { navigation: any }) {
     } catch (error: any) {
       setLoading(false);
       setError(error?.response?.data?.message ?? "Không thể tải thông tin");
+      // router.replace('/(auth)/signin');
     }
   }, []);
 

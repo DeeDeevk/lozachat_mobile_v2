@@ -36,6 +36,7 @@ import {
   Trash2,
   User as UserIcon,
   X,
+  Pin
 } from "lucide-react-native";
 import React, {
   useCallback,
@@ -179,7 +180,34 @@ export default function ChatDetailScreen() {
     typingUsersByConv,
     updateStrangerStatus,
     forwardMessage,
+    pinnedMessages,
+    fetchPinnedMessages,
+    pinMessage,
+    unpinMessage,
   } = useChatStore();
+  const [showPinnedList, setShowPinnedList] = useState(false);
+
+  useEffect(() => {
+    if (id) fetchPinnedMessages(id as string);
+  }, [id]);
+
+  const handlePinMessage = useCallback(async () => {
+    if (!contextMenu || !id) return;
+    const msg = contextMenu.message;
+    const isPinned = (pinnedMessages[id as string] ?? []).some(
+      (m) => m._id === msg._id
+    );
+    try {
+      if (isPinned) {
+        await unpinMessage(id as string, msg._id);
+      } else {
+        await pinMessage(id as string, msg._id);
+      }
+    } catch {
+      Alert.alert("Lỗi", "Không thể ghim tin nhắn");
+    }
+    setContextMenu(null);
+  }, [contextMenu, id, pinnedMessages, pinMessage, unpinMessage]);
 
   const { user, userProfile } = useAuthStore();
   const { socket } = useSocketStore();
@@ -1114,6 +1142,120 @@ export default function ChatDetailScreen() {
           <View style={{ width: 40 }} />
         </View>
 
+        {/* Banner ghim tin nhắn */}
+        {(pinnedMessages[id as string] ?? []).length > 0 && (() => {
+          const pins = pinnedMessages[id as string];
+          const top = pins[0];
+          const topPayload = decodeChatPayload(top.content);
+          const topPreview =
+            topPayload?.text
+            || topPayload?.reply?.preview
+            || (topPayload?.kind === "image" ? "Ảnh" : null)
+            || (topPayload?.kind === "audio" ? "Ghi âm" : null)
+            || (topPayload?.kind === "file" ? topPayload.attachment?.name : null)
+            || (topPayload?.kind === "sticker" ? "Sticker" : null)
+            || (topPayload?.kind === "poll" ? topPayload.poll?.question : null)
+            || top.content || "";
+          const topSender = getSenderName(top, user?.userId, activeConv?.participants);
+
+          return (
+            <View style={styles.wrapper}>
+              {/* Row collapsed */}
+              {!showPinnedList && (
+                <View style={styles.row}>
+                  <View style={styles.iconCircle}>
+                    <Pin size={14} color="#60a5fa" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.label}>Tin nhắn</Text>
+                    <Text style={styles.preview} numberOfLines={1}>
+                      <Text style={styles.sender}>{topSender}: </Text>
+                      {topPreview}
+                    </Text>
+                  </View>
+                  {pins.length > 1 && (
+                    <TouchableOpacity
+                      onPress={() => setShowPinnedList(true)}
+                      style={styles.badge}
+                    >
+                      <Text style={styles.badgeText}>+{pins.length - 1} ghim ▼</Text>
+                    </TouchableOpacity>
+                  )}
+                  <TouchableOpacity
+                    onPress={() => unpinMessage(id as string, top._id)}
+                    style={{ padding: 4 }}
+                  >
+                    <Text style={{ color: "#64748b", fontSize: 16 }}>···</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+
+              {/* Danh sách mở rộng */}
+              {showPinnedList && (
+                <View>
+                  <View style={styles.listHeader}>
+                    <Text style={styles.listTitle}>Danh sách ghim ({pins.length})</Text>
+                    <TouchableOpacity onPress={() => setShowPinnedList(false)}>
+                      <Text style={styles.collapseText}>Thu gọn ▲</Text>
+                    </TouchableOpacity>
+                  </View>
+                  {pins.map((msg) => {
+                    const payload = decodeChatPayload(msg.content);
+                    const preview =
+                      payload?.text
+                      || payload?.reply?.preview
+                      || (payload?.kind === "image" ? "Ảnh" : null)
+                      || (payload?.kind === "audio" ? "Ghi âm" : null)
+                      || (payload?.kind === "file" ? payload.attachment?.name : null)
+                      || (payload?.kind === "sticker" ? "Sticker" : null)
+                      || (payload?.kind === "poll" ? payload.poll?.question : null)
+                      || msg.content || "";
+                    const sender = getSenderName(msg, user?.userId, activeConv?.participants);
+
+                    return (
+                      <View key={msg._id} style={styles.row}>
+                        <View style={styles.iconCircle}>
+                          <Pin size={14} color="#60a5fa" />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.label}>Tin nhắn</Text>
+                          <Text style={styles.preview} numberOfLines={1}>
+                            <Text style={styles.sender}>{sender}: </Text>
+                            {preview}
+                          </Text>
+                        </View>
+                        <TouchableOpacity
+                          onPress={() => {
+                            Alert.alert("Tùy chọn", "", [
+                              {
+                                text: "Copy",
+                                onPress: () => {
+                                  const p = decodeChatPayload(msg.content);
+                                  const text = p?.text || p?.reply?.preview || msg.content || "";
+                                  void Clipboard.setStringAsync(text);
+                                },
+                              },
+                              {
+                                text: "Bỏ ghim",
+                                style: "destructive",
+                                onPress: () => unpinMessage(id as string, msg._id),
+                              },
+                              { text: "Hủy", style: "cancel" },
+                            ]);
+                          }}
+                          style={{ padding: 4 }}
+                        >
+                          <Text style={{ color: "#64748b", fontSize: 16 }}>···</Text>
+                        </TouchableOpacity>
+                      </View>
+                    );
+                  })}
+                </View>
+              )}
+            </View>
+          );
+        })()}
+
         {/* Messages */}
         <FlatList
           ref={flatListRef}
@@ -1752,6 +1894,20 @@ export default function ChatDetailScreen() {
           onPress={() => setContextMenu(null)}
         >
           <View style={styles.contextMenu}>
+            {contextMenu && !contextMenu.message.isRecalled && (
+              <TouchableOpacity
+                style={styles.contextMenuItem}
+                onPress={() => void handlePinMessage()}
+              >
+                <Pin size={16} color="#e2e8f0" />
+                <Text style={styles.contextMenuText}>
+                  {(pinnedMessages[id as string] ?? []).some(
+                    (m) => m._id === contextMenu.message._id
+                  ) ? "Bỏ ghim" : "Ghim tin nhắn"}
+                </Text>
+              </TouchableOpacity>
+            )}
+
             {contextMenu &&
               !contextMenu.message.isRecalled &&
               !isFileMessage(contextMenu.message) && (
@@ -2648,4 +2804,45 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   contextMenuText: { color: "#e2e8f0", fontSize: 14 },
+  wrapper: {
+    backgroundColor: "#1a2744",
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(148,163,184,0.12)",
+  },
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  iconCircle: {
+    width: 32, height: 32, borderRadius: 16,
+    backgroundColor: "rgba(37,99,235,0.15)",
+    alignItems: "center", justifyContent: "center",
+  },
+  label: { fontSize: 11, color: "#94a3b8", marginBottom: 1 },
+  preview: { fontSize: 13, color: "#cbd5e1" },
+  sender: { color: "#e2e8f0", fontWeight: "600" },
+  badge: {
+    borderWidth: 1,
+    borderColor: "rgba(96,165,250,0.35)",
+    backgroundColor: "rgba(37,99,235,0.12)",
+    borderRadius: 20,
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+  },
+  badgeText: { color: "#60a5fa", fontSize: 12, fontWeight: "600" },
+  listHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 14,
+    paddingTop: 8,
+    paddingBottom: 4,
+    borderTopWidth: 1,
+    borderTopColor: "rgba(148,163,184,0.1)",
+  },
+  listTitle: { color: "#f1f5f9", fontWeight: "600", fontSize: 13 },
+  collapseText: { color: "#60a5fa", fontSize: 12 },
 });
