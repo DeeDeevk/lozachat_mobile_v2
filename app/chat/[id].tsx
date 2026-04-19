@@ -36,7 +36,12 @@ import {
   Trash2,
   User as UserIcon,
   X,
+  Info,
+  Phone,
+  Video,
 } from "lucide-react-native";
+import ConversationInfoPanel from "@/components/ConversationInfoPanel";
+import GroupConversationInfoPanel from "@/components/GroupConversationInfoPanel";
 import React, {
   useCallback,
   useEffect,
@@ -165,6 +170,7 @@ export default function ChatDetailScreen() {
   );
   const [forwardSearch, setForwardSearch] = useState("");
   const [selectedConvs, setSelectedConvs] = useState<string[]>([]);
+  const [showInfoPanel, setShowInfoPanel] = useState(false);
 
   const {
     messages,
@@ -182,7 +188,7 @@ export default function ChatDetailScreen() {
   } = useChatStore();
 
   const { user, userProfile } = useAuthStore();
-  const { socket } = useSocketStore();
+  const { socket, onlineUsers } = useSocketStore();
 
   // ─── Derived data ───────────────────────────────────────────────────────────
   const activeConv = useMemo(
@@ -1110,8 +1116,46 @@ export default function ChatDetailScreen() {
                   <Text style={styles.strangerBadgeText}>Người lạ</Text>
                 </View>
               )}
+            {!activeConv?.group && activeConv && (
+              <View
+                style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
+              >
+                <View
+                  style={{
+                    width: 6,
+                    height: 6,
+                    borderRadius: 3,
+                    backgroundColor: onlineUsers.some(
+                      (id: string) => String(id) === String(otherUser?._id),
+                    )
+                      ? "#10b981"
+                      : "#64748b",
+                  }}
+                />
+                <Text style={styles.headerSubtitle}>
+                  {onlineUsers.some(
+                    (id: string) => String(id) === String(otherUser?._id),
+                  )
+                    ? "Đang hoạt động"
+                    : "Ngoại tuyến"}
+                </Text>
+              </View>
+            )}
           </View>
-          <View style={{ width: 40 }} />
+          <View style={styles.headerActions}>
+            <TouchableOpacity style={styles.actionBtn} onPress={() => {}}>
+              <Phone size={20} color="#94a3b8" />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.actionBtn} onPress={() => {}}>
+              <Video size={20} color="#94a3b8" />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.actionBtn}
+              onPress={() => setShowInfoPanel(true)}
+            >
+              <Info size={20} color={showInfoPanel ? "#2563eb" : "#94a3b8"} />
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* Messages */}
@@ -1967,6 +2011,28 @@ export default function ChatDetailScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* Conversation Info Panel */}
+      {!activeConv?.group && activeConv && (
+        <ConversationInfoPanel
+          visible={showInfoPanel}
+          onClose={() => setShowInfoPanel(false)}
+          conversation={activeConv}
+          messages={currentMessages}
+          currentUserId={user?.userId}
+        />
+      )}
+
+      {/* Group Conversation Info Panel */}
+      {activeConv?.group && activeConv && (
+        <GroupConversationInfoPanel
+          visible={showInfoPanel}
+          onClose={() => setShowInfoPanel(false)}
+          conversation={activeConv}
+          messages={currentMessages}
+          currentUserId={user?.userId}
+        />
+      )}
     </View>
   );
 }
@@ -1986,6 +2052,23 @@ const styles = StyleSheet.create({
   backBtn: { width: 40 },
   headerCenter: { flex: 1, alignItems: "center" },
   headerTitle: { color: "white", fontSize: 16, fontWeight: "700" },
+  headerSubtitle: {
+    color: "#94a3b8",
+    fontSize: 12,
+    marginTop: 2,
+  },
+  headerActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  actionBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 8,
+    justifyContent: "center",
+    alignItems: "center",
+  },
   strangerBadge: {
     flexDirection: "row",
     alignItems: "center",
