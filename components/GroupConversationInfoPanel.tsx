@@ -259,6 +259,24 @@ export default function GroupConversationInfoPanel({
     setExpandedSections((prev) => ({ ...prev, [section]: !prev[section] }));
   };
 
+  const uniquePendingRequests = useMemo(() => {
+    if (!pendingRequests || !Array.isArray(pendingRequests)) return [];
+
+    const map = new Map();
+    pendingRequests.forEach((req) => {
+      if (req) {
+        // Quan trọng: Phải lấy ID của người được mời để làm key
+        const uId =
+          typeof req.invitedUserId === "object"
+            ? req.invitedUserId._id
+            : req.invitedUserId;
+
+        if (uId) map.set(uId, req);
+      }
+    });
+    return Array.from(map.values());
+  }, [pendingRequests]);
+
   return (
     <Modal
       visible={visible}
@@ -281,7 +299,6 @@ export default function GroupConversationInfoPanel({
             <Edit size={20} color="white" />
           </TouchableOpacity>
         </View>
-
         <ScrollView
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ paddingBottom: insets.bottom + 20 }}
@@ -331,50 +348,70 @@ export default function GroupConversationInfoPanel({
           </View>
 
           {/* Pending Requests */}
-          {isAdminOrOwner && pendingRequests.length > 0 && (
-            <Section
-              title="Yêu cầu chờ duyệt"
-              count={pendingRequests.length}
-              isOpen={true}
-              onToggle={() => {}}
+          {/* Pending Requests - Chỉ hiện cho Admin/Owner */}
+          {isAdminOrOwner && uniquePendingRequests.length > 0 && (
+            <View
+              style={[
+                styles.sectionWrap,
+                { backgroundColor: "rgba(59,130,246,0.05)" },
+              ]}
             >
-              {pendingRequests.map((req) => (
-                <View key={req._id} style={styles.requestCard}>
-                  <View style={styles.requestInfo}>
-                    <Text style={styles.requestName}>
-                      {req.invitedUserId?.displayName}
-                    </Text>
-                    <Text style={styles.requestSub}>
-                      Mời bởi {req.invitedBy?.displayName}
-                    </Text>
+              <Section
+                title="Chờ duyệt"
+                count={uniquePendingRequests.length}
+                isOpen={true} // Nên để mặc định mở để Admin dễ thấy
+                onToggle={() => {}}
+              >
+                {uniquePendingRequests.map((req) => (
+                  <View key={req._id} style={styles.requestCard}>
+                    <View style={styles.requestInfo}>
+                      <Text style={styles.requestName}>
+                        {req.invitedUserId?.displayName || "Người dùng mới"}
+                      </Text>
+                      <Text style={styles.requestSub}>
+                        mời bởi {req.invitedBy?.displayName || "Admin"}
+                      </Text>
+                    </View>
+
+                    <View style={styles.requestActions}>
+                      <TouchableOpacity
+                        onPress={() => handleReview(req._id, "approved")}
+                        style={[
+                          styles.approveBtn,
+                          {
+                            backgroundColor: "rgba(16,185,129,0.1)",
+                            padding: 8,
+                            borderRadius: 8,
+                          },
+                        ]}
+                        disabled={processingIds.includes(req._id)}
+                      >
+                        {processingIds.includes(req._id) ? (
+                          <ActivityIndicator size="small" color="#10b981" />
+                        ) : (
+                          <UserCheck size={20} color="#10b981" />
+                        )}
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        onPress={() => handleReview(req._id, "rejected")}
+                        style={[
+                          styles.rejectBtn,
+                          {
+                            backgroundColor: "rgba(239,68,68,0.1)",
+                            padding: 8,
+                            borderRadius: 8,
+                          },
+                        ]}
+                        disabled={processingIds.includes(req._id)}
+                      >
+                        <UserX size={20} color="#ef4444" />
+                      </TouchableOpacity>
+                    </View>
                   </View>
-                  <View style={styles.requestActions}>
-                    <TouchableOpacity
-                      onPress={() => handleReview(req._id, "approved")}
-                      style={styles.approveBtn}
-                      disabled={processingIds.includes(req._id)}
-                    >
-                      {processingIds.includes(req._id) ? (
-                        <ActivityIndicator size="small" color="#10b981" />
-                      ) : (
-                        <UserCheck size={18} color="#10b981" />
-                      )}
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      onPress={() => handleReview(req._id, "rejected")}
-                      style={styles.rejectBtn}
-                      disabled={processingIds.includes(req._id)}
-                    >
-                      {processingIds.includes(req._id) ? (
-                        <ActivityIndicator size="small" color="#ef4444" />
-                      ) : (
-                        <UserX size={18} color="#ef4444" />
-                      )}
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              ))}
-            </Section>
+                ))}
+              </Section>
+            </View>
           )}
 
           {/* Members Section */}
