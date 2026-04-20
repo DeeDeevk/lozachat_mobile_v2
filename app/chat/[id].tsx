@@ -74,6 +74,7 @@ import {
   Pressable,
   SafeAreaView,
   ScrollView,
+  StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
@@ -81,6 +82,7 @@ import {
 } from "react-native";
 import { styles } from "../style/chatstyle";
 import { chatService } from "@/services/chatService";
+import { useFriendStore } from "@/stores/useFriendStore";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type PopupType = "media" | "sticker" | "audio" | "poll" | "theme" | null;
@@ -150,7 +152,7 @@ function getSenderName(
   myId: string | undefined,
   participants: Array<{ _id: string; displayName: string }> = [],
 ) {
-  if (message.senderId === myId) return "Bạn";
+  // Tìm trong participants luôn, không phân biệt mình hay người khác
   return (
     participants.find((p) => p._id === message.senderId)?.displayName ||
     "Người dùng"
@@ -334,41 +336,27 @@ interface AddMemberModalProps {
 function AddMemberModal({
   visible,
   onClose,
-  conversationId,
   currentParticipantIds,
   onAdd,
 }: AddMemberModalProps) {
   const [search, setSearch] = useState("");
   const [adding, setAdding] = useState<string | null>(null);
-  const { conversations } = useChatStore();
-  const { user } = useAuthStore();
 
-  const candidates = useMemo(() => {
-    const seen = new Set<string>();
-    const result: Array<{
-      _id: string;
-      displayName: string;
-      avatarUrl?: string | null;
-    }> = [];
-    conversations.forEach((c) => {
-      if (c.group) return;
-      c.participants.forEach((p) => {
-        if (p._id === user?.userId) return;
-        if (currentParticipantIds.includes(p._id)) return;
-        if (seen.has(p._id)) return;
-        seen.add(p._id);
-        result.push(p);
-      });
-    });
-    return result;
-  }, [conversations, currentParticipantIds, user?.userId]);
+  // Lấy danh sách bạn bè chính thức từ Store
+  const { friends, getFriends } = useFriendStore();
 
-  const filtered = useMemo(() => {
-    if (!search.trim()) return candidates;
-    return candidates.filter((p) =>
-      p.displayName.toLowerCase().includes(search.toLowerCase()),
+  useEffect(() => {
+    if (visible) getFriends();
+  }, [visible, getFriends]);
+
+  // Lọc: Bạn bè + Chưa có trong nhóm + Theo tên search
+  const eligible = useMemo(() => {
+    return friends.filter(
+      (f) =>
+        !currentParticipantIds.includes(f._id) &&
+        f.displayName.toLowerCase().includes(search.toLowerCase()),
     );
-  }, [candidates, search]);
+  }, [friends, currentParticipantIds, search]);
 
   return (
     <Modal
@@ -377,114 +365,92 @@ function AddMemberModal({
       animationType="slide"
       onRequestClose={onClose}
     >
-      <Pressable style={styles.modalOverlay} onPress={onClose}>
-        <Pressable onPress={() => {}}>
+      <View style={styles.modalOverlay}>
+        {/* Lớp nền bấm để đóng */}
+        <TouchableOpacity
+          style={StyleSheet.absoluteFill}
+          activeOpacity={1}
+          onPress={onClose}
+        />
+
+        <View style={[styles.popupSheet, { height: "70%", width: "92%" }]}>
           <View
-            style={[styles.popupSheet, { maxHeight: "70%", minHeight: 300 }]}
+            style={{
+              flexDirection: "row",
+              justifyContent: "space-between",
+              marginBottom: 14,
+            }}
           >
-            <View
-              style={{
-                flexDirection: "row",
-                alignItems: "center",
-                justifyContent: "space-between",
-                marginBottom: 14,
-              }}
-            >
-              <Text style={styles.popupTitle}>Thêm thành viên</Text>
-              <TouchableOpacity onPress={onClose}>
-                <X size={20} color="#94a3b8" />
-              </TouchableOpacity>
-            </View>
-            <TextInput
-              style={styles.pollInput}
-              placeholder="Tìm người dùng..."
-              placeholderTextColor="#64748b"
-              value={search}
-              onChangeText={setSearch}
-            />
-            <ScrollView
-              style={{ maxHeight: 320 }}
-              showsVerticalScrollIndicator={false}
-            >
-              {filtered.length === 0 ? (
-                <Text style={[styles.emptyText, { paddingVertical: 20 }]}>
-                  Không tìm thấy người dùng nào
-                </Text>
-              ) : (
-                filtered.map((p) => (
-                  <View key={p._id} style={styles.popupAction}>
-                    <View
-                      style={{
-                        width: 32,
-                        height: 32,
-                        borderRadius: 16,
-                        backgroundColor: p.avatarUrl
-                          ? undefined
-                          : getAvatarColor(p.displayName),
-                        overflow: "hidden",
-                        alignItems: "center",
-                        justifyContent: "center",
-                      }}
-                    >
-                      {p.avatarUrl ? (
-                        <Image
-                          source={{ uri: p.avatarUrl }}
-                          style={{ width: 32, height: 32 }}
-                        />
-                      ) : (
-                        <Text
-                          style={{
-                            color: "white",
-                            fontWeight: "700",
-                            fontSize: 13,
-                          }}
-                        >
-                          {p.displayName[0]?.toUpperCase()}
-                        </Text>
-                      )}
-                    </View>
-                    <Text style={[styles.popupActionText, { flex: 1 }]}>
-                      {p.displayName}
-                    </Text>
-                    <TouchableOpacity
-                      disabled={adding === p._id}
-                      onPress={async () => {
-                        setAdding(p._id);
-                        try {
-                          await onAdd(p._id);
-                        } finally {
-                          setAdding(null);
-                        }
-                      }}
-                      style={{
-                        backgroundColor:
-                          adding === p._id ? "#334155" : "#2563eb",
-                        borderRadius: 8,
-                        paddingHorizontal: 12,
-                        paddingVertical: 6,
-                      }}
-                    >
-                      {adding === p._id ? (
-                        <ActivityIndicator size="small" color="white" />
-                      ) : (
-                        <Text
-                          style={{
-                            color: "white",
-                            fontWeight: "600",
-                            fontSize: 12,
-                          }}
-                        >
-                          Thêm
-                        </Text>
-                      )}
-                    </TouchableOpacity>
-                  </View>
-                ))
-              )}
-            </ScrollView>
+            <Text style={styles.popupTitle}>Thêm thành viên</Text>
+            <TouchableOpacity onPress={onClose}>
+              <X size={20} color="#94a3b8" />
+            </TouchableOpacity>
           </View>
-        </Pressable>
-      </Pressable>
+
+          <TextInput
+            style={styles.pollInput}
+            placeholder="Tìm bạn bè..."
+            placeholderTextColor="#64748b"
+            value={search}
+            onChangeText={setSearch}
+          />
+
+          <FlatList
+            data={eligible}
+            keyExtractor={(item) => item._id}
+            showsVerticalScrollIndicator={true}
+            contentContainerStyle={{ paddingBottom: 20 }}
+            ListEmptyComponent={
+              <Text
+                style={[
+                  styles.emptyText,
+                  { textAlign: "center", marginTop: 20 },
+                ]}
+              >
+                Không tìm thấy bạn bè nào hợp lệ
+              </Text>
+            }
+            renderItem={({ item: p }) => (
+              <View style={styles.popupAction}>
+                <SenderAvatar participant={p as any} size={32} />
+                <Text
+                  style={[styles.popupActionText, { flex: 1, marginLeft: 10 }]}
+                >
+                  {p.displayName}
+                </Text>
+                <TouchableOpacity
+                  disabled={adding === p._id}
+                  onPress={async () => {
+                    setAdding(p._id);
+                    await onAdd(p._id);
+                    setAdding(null);
+                  }}
+                  style={{
+                    backgroundColor: adding === p._id ? "#334155" : "#2563eb",
+                    borderRadius: 8,
+                    paddingHorizontal: 12,
+                    paddingVertical: 6,
+                  }}
+                >
+                  {adding === p._id ? (
+                    <ActivityIndicator size="small" color="white" />
+                  ) : (
+                    <Text
+                      style={{
+                        color: "white",
+                        fontWeight: "600",
+                        fontSize: 12,
+                      }}
+                    >
+                      Thêm
+                    </Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            )}
+          />
+        </View>
+      </View>
     </Modal>
   );
 }
@@ -1930,99 +1896,198 @@ export default function ChatDetailScreen() {
             <ChevronLeft color="white" size={28} />
           </TouchableOpacity>
           <View style={styles.headerCenter}>
-            <View style={{ flexDirection: "row", alignItems: "center" }}>
-              {/* ================= GROUP AVATAR ================= */}
-              {activeConv?.group ? (
-                <View style={styles.triangleAvatar}>
-                  {groupAvatars[0] && (
-                    <Image
-                      source={{ uri: groupAvatars[0] }}
-                      style={styles.avtTop}
-                    />
-                  )}
-                  {groupAvatars[1] && (
-                    <Image
-                      source={{ uri: groupAvatars[1] }}
-                      style={styles.avtLeft}
-                    />
-                  )}
-                  {groupAvatars[2] && (
-                    <Image
-                      source={{ uri: groupAvatars[2] }}
-                      style={styles.avtRight}
-                    />
-                  )}
+            <View
+              style={{ flexDirection: "row", alignItems: "center", flex: 1 }}
+            >
+              {/* ================= AVATAR SECTION ================= */}
+              <View style={{ position: "relative", marginRight: 12 }}>
+                {activeConv?.group ? (
+                  <View style={styles.triangleAvatar}>
+                    {activeConv.group.avatar ? (
+                      <Image
+                        source={{ uri: activeConv.group.avatar }}
+                        style={{
+                          width: 44, // Tăng nhẹ kích thước để cân đối
+                          height: 44,
+                          borderRadius: 14, // Bo góc kiểu Squircle hiện đại hơn
+                          borderWidth: 1.5,
+                          borderColor: "rgba(255,255,255,0.1)",
+                        }}
+                        resizeMode="cover"
+                      />
+                    ) : (
+                      <View
+                        style={{ width: 44, height: 44, position: "relative" }}
+                      >
+                        {/* Logic Triangle Avatar tối ưu lại vị trí */}
+                        {groupAvatars[0] && (
+                          <Image
+                            source={{ uri: groupAvatars[0] }}
+                            style={[
+                              styles.avtTop,
+                              { width: 26, height: 26, borderRadius: 13 },
+                            ]}
+                          />
+                        )}
+                        {groupAvatars[1] && (
+                          <Image
+                            source={{ uri: groupAvatars[1] }}
+                            style={[
+                              styles.avtLeft,
+                              {
+                                width: 26,
+                                height: 26,
+                                borderRadius: 13,
+                                borderWidth: 2,
+                                borderColor: "#0f172a",
+                              },
+                            ]}
+                          />
+                        )}
+                        {groupAvatars[2] && (
+                          <View
+                            style={[
+                              styles.avtRight,
+                              {
+                                width: 26,
+                                height: 26,
+                                borderRadius: 13,
+                                backgroundColor: "#1e293b",
+                                justifyContent: "center",
+                                alignItems: "center",
+                                borderWidth: 2,
+                                borderColor: "#0f172a",
+                              },
+                            ]}
+                          >
+                            {groupAvatars.length > 3 ? (
+                              <Text
+                                style={{
+                                  color: "#60a5fa",
+                                  fontSize: 10,
+                                  fontWeight: "800",
+                                }}
+                              >
+                                +{groupAvatars.length - 2}
+                              </Text>
+                            ) : (
+                              <Image
+                                source={{ uri: groupAvatars[2] }}
+                                style={{
+                                  width: "100%",
+                                  height: "100%",
+                                  borderRadius: 13,
+                                }}
+                              />
+                            )}
+                          </View>
+                        )}
+                      </View>
+                    )}
+                  </View>
+                ) : (
+                  /* ONE CHAT AVATAR */
+                  <View>
+                    {otherUser?.avatarUrl ? (
+                      <Image
+                        source={{ uri: otherUser.avatarUrl }}
+                        style={{ width: 44, height: 44, borderRadius: 22 }}
+                      />
+                    ) : (
+                      <View
+                        style={{
+                          width: 44,
+                          height: 44,
+                          borderRadius: 22,
+                          backgroundColor: getAvatarColor(
+                            otherUser?.displayName || "",
+                          ),
+                          justifyContent: "center",
+                          alignItems: "center",
+                        }}
+                      >
+                        <Text
+                          style={{
+                            color: "white",
+                            fontWeight: "bold",
+                            fontSize: 18,
+                          }}
+                        >
+                          {otherUser?.displayName?.[0]}
+                        </Text>
+                      </View>
+                    )}
+                    {/* Status Indicator gọn hơn cho 1-1 */}
+                    {onlineUsers.includes(otherUser?._id!) && (
+                      <View
+                        style={{
+                          position: "absolute",
+                          bottom: 0,
+                          right: 0,
+                          width: 12,
+                          height: 12,
+                          borderRadius: 6,
+                          backgroundColor: "#10b981",
+                          borderWidth: 2,
+                          borderColor: "#0f172a",
+                        }}
+                      />
+                    )}
+                  </View>
+                )}
+              </View>
 
-                  {groupAvatars.length > 3 && (
-                    <View style={styles.moreBadge}>
-                      <Text style={{ color: "#fff", fontSize: 12 }}>
-                        +{groupAvatars.length - 3}
-                      </Text>
-                    </View>
-                  )}
-                </View>
-              ) : (
-                /* ================= ONE CHAT AVATAR ================= */
-                otherUser?.avatarUrl && (
-                  <Image
-                    source={{ uri: otherUser.avatarUrl }}
-                    style={{
-                      width: 40,
-                      height: 40,
-                      borderRadius: 20,
-                      marginRight: 10,
-                    }}
-                  />
-                )
-              )}
-
-              {/* ================= TEXT ================= */}
-              <View style={{ flexDirection: "column" }}>
-                <Text style={styles.headerTitle} numberOfLines={1}>
+              {/* ================= TEXT INFO SECTION ================= */}
+              <View style={{ flex: 1, justifyContent: "center" }}>
+                <Text
+                  style={{
+                    color: "#f8fafc",
+                    fontSize: 17,
+                    fontWeight: "700",
+                    letterSpacing: 0.3,
+                    marginBottom: 2,
+                  }}
+                  numberOfLines={1}
+                >
                   {activeConv?.group?.name ||
                     otherUser?.displayName ||
                     "Đang tải..."}
                 </Text>
 
-                {/* STATUS ONLY 1-1 */}
-                {!activeConv?.group && activeConv && (
-                  <View
-                    style={{
-                      flexDirection: "row",
-                      alignItems: "center",
-                      gap: 6,
-                    }}
-                  >
-                    <View
+                {/* Subtitle logic */}
+                <View style={{ flexDirection: "row", alignItems: "center" }}>
+                  {activeConv?.group ? (
+                    <Text
                       style={{
-                        width: 6,
-                        height: 6,
-                        borderRadius: 3,
-                        backgroundColor: onlineUsers.some(
-                          (uid: string) =>
-                            String(uid) === String(otherUser?._id),
-                        )
+                        color: "#94a3b8",
+                        fontSize: 12,
+                        fontWeight: "500",
+                      }}
+                    >
+                      {activeConv.participants.length} thành viên
+                      {typingUsers.length > 0 && (
+                        <Text style={{ color: "#60a5fa" }}>
+                          {" "}
+                          • đang soạn...
+                        </Text>
+                      )}
+                    </Text>
+                  ) : (
+                    <Text
+                      style={{
+                        color: onlineUsers.includes(otherUser?._id!)
                           ? "#10b981"
                           : "#64748b",
+                        fontSize: 12,
+                        fontWeight: "600",
                       }}
-                    />
-
-                    <Text style={styles.headerSubtitle}>
-                      {onlineUsers.some(
-                        (uid: string) => String(uid) === String(otherUser?._id),
-                      )
+                    >
+                      {onlineUsers.includes(otherUser?._id!)
                         ? "Đang hoạt động"
                         : "Ngoại tuyến"}
                     </Text>
-                  </View>
-                )}
-
-                {/* GROUP MEMBERS */}
-                {activeConv?.group && (
-                  <Text style={styles.headerSubtitle}>
-                    {activeConv.participants.length} thành viên
-                  </Text>
-                )}
+                  )}
+                </View>
               </View>
             </View>
           </View>
@@ -3272,18 +3337,32 @@ export default function ChatDetailScreen() {
           currentParticipantIds={activeConv.participants.map((p) => p._id)}
           onAdd={async (targetUserId) => {
             try {
+              console.log("Adding user:", targetUserId, "to convo:", id);
               const result = await addMemberToGroup(id as string, targetUserId);
-              if (result.needsApproval) {
-                Alert.alert(
-                  "Thông báo",
-                  "Yêu cầu đã gửi, chờ trưởng/phó nhóm duyệt",
-                );
-              } else {
-                Alert.alert("Thành công", "Đã thêm thành viên vào nhóm");
+
+              // Nếu thành công
+              if (result) {
+                if (result.needsApproval) {
+                  Alert.alert(
+                    "Thông báo",
+                    "Yêu cầu đã gửi, chờ trưởng/phó nhóm duyệt",
+                  );
+                } else {
+                  // CẬP NHẬT LẠI STORE NGAY LẬP TỨC
+                  // Giả sử API trả về object member mới, nếu không Khoa cần fetch lại convo
+                  // fetchConversations();
+                  Alert.alert("Thành công", "Đã thêm thành viên vào nhóm");
+                }
                 setShowAddMember(false);
               }
-            } catch {
-              Alert.alert("Lỗi", "Không thể thêm thành viên");
+            } catch (error: any) {
+              console.error(
+                "Lỗi API thêm thành viên:",
+                error.response?.data || error.message,
+              );
+              const errorMsg =
+                error.response?.data?.message || "Không thể thêm thành viên";
+              Alert.alert("Lỗi", errorMsg);
             }
           }}
         />
@@ -3322,7 +3401,7 @@ export default function ChatDetailScreen() {
           onReviewRequest={(id, action) =>
             reviewJoinRequest(activeConv._id, id, action)
           }
-          pendingRequests={joinRequests}
+          pendingRequests={joinRequests[activeConv._id] || []}
           onUpdateMemberRole={async (targetUserId, role) => {
             if (!activeConv._id) return;
             try {

@@ -1,6 +1,5 @@
 // components/AddMemberModal.tsx
-import { UserPlus, X, Search } from "lucide-react-native";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -15,6 +14,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { UserPlus, X, Search } from "lucide-react-native";
 import { useFriendStore } from "../stores/useFriendStore";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -25,7 +25,7 @@ interface AddMemberModalProps {
   onAdd: (targetUserId: string) => Promise<void>;
 }
 
-// ─── Avatar color helper ──────────────────────────────────────────────────────
+// ─── Avatar color helper (Đồng bộ với logic màu của bạn) ──────────────────────
 const AVATAR_COLORS = [
   "#3b82f6",
   "#10b981",
@@ -42,9 +42,8 @@ function getAvatarColor(name: string) {
   return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
 }
 
-// ─── Component ────────────────────────────────────────────────────────────────
 export default function AddMemberModal({
-  conversationId,
+  visible,
   currentParticipantIds,
   onClose,
   onAdd,
@@ -54,15 +53,18 @@ export default function AddMemberModal({
   const { friends, getFriends } = useFriendStore();
 
   useEffect(() => {
-    getFriends();
-  }, [getFriends]);
-
-  // Lọc bạn bè chưa có trong nhóm (giống web)
-  const eligible = friends.filter(
-    (f) =>
-      !currentParticipantIds.includes(f._id) &&
-      f.displayName.toLowerCase().includes(search.toLowerCase()),
-  );
+    if (visible) {
+      getFriends(); // Load lại danh sách bạn bè khi mở modal
+    }
+  }, [visible]);
+  // Lọc bạn bè chưa có trong nhóm - Đồng bộ logic filter từ Web
+  const eligible = useMemo(() => {
+    return friends.filter(
+      (f) =>
+        !currentParticipantIds.includes(f._id) &&
+        f.displayName.toLowerCase().includes(search.toLowerCase()),
+    );
+  }, [friends, currentParticipantIds, search]);
 
   const handleAdd = async (friendId: string) => {
     setAdding(friendId);
@@ -70,14 +72,13 @@ export default function AddMemberModal({
     setAdding(null);
   };
 
-  // ─── Render friend item ───────────────────────────────────────────────────
-  const renderItem = ({ item }: { item: (typeof friends)[number] }) => {
-    const color = getAvatarColor(item.displayName);
+  const renderItem = ({ item }: { item: any }) => {
     const isAdding = adding === item._id;
+    const color = getAvatarColor(item.displayName);
 
     return (
       <View style={styles.friendItem}>
-        {/* Avatar */}
+        {/* Avatar Cluster */}
         <View
           style={[
             styles.avatar,
@@ -98,7 +99,7 @@ export default function AddMemberModal({
           {item.displayName}
         </Text>
 
-        {/* Add button */}
+        {/* Add button - Style đồng bộ bản Web */}
         <TouchableOpacity
           style={[styles.addBtn, isAdding && styles.addBtnDisabled]}
           onPress={() => handleAdd(item._id)}
@@ -118,90 +119,135 @@ export default function AddMemberModal({
     );
   };
 
-  // ─── Render ───────────────────────────────────────────────────────────────
   return (
     <Modal
-      visible
+      visible={visible}
       transparent
       animationType="fade"
       onRequestClose={onClose}
       statusBarTranslucent
     >
-      {/* Backdrop */}
-      <Pressable style={styles.backdrop} onPress={onClose}>
+      {/* 1. Lớp backdrop căn giữa tuyệt đối */}
+      <View style={styles.backdrop}>
+        {/* 2. Nhấn ra ngoài để đóng */}
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+
+        {/* 3. Dùng KeyboardAvoidingView để đẩy modal lên khi hiện bàn phím */}
         <KeyboardAvoidingView
-          behavior={Platform.OS === "ios" ? "padding" : undefined}
-          style={styles.centered}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          style={styles.centeredView} // Dùng style mới ở dưới
         >
-          {/* Modal card */}
+          {/* 4. Thẻ Modal chính */}
           <Pressable style={styles.card} onPress={(e) => e.stopPropagation()}>
-            {/* Header */}
-            <View style={styles.header}>
+            {/* Nội dung Header, Search, FlatList giữ nguyên của Khoa */}
+            <View style={styles.modalHeader}>
               <Text style={styles.title}>Thêm thành viên</Text>
-              <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
-                <X size={18} color="#94a3b8" />
+              <TouchableOpacity onPress={onClose}>
+                <X size={24} color="#94a3b8" />
               </TouchableOpacity>
             </View>
 
-            {/* Search */}
-            <View style={styles.searchBox}>
-              <Search size={14} color="#475569" />
+            {/* Ô Search */}
+            <View style={styles.searchContainer}>
+              <Search size={16} color="#475569" style={styles.searchIcon} />
               <TextInput
                 style={styles.searchInput}
                 placeholder="Tìm bạn bè..."
-                placeholderTextColor="#475569"
+                placeholderTextColor="#64748b"
                 value={search}
                 onChangeText={setSearch}
                 autoFocus
               />
             </View>
 
-            {/* Friend list */}
+            {/* Danh sách */}
             <FlatList
               data={eligible}
-              renderItem={renderItem}
               keyExtractor={(item) => item._id}
-              style={styles.list}
+              showsVerticalScrollIndicator={true}
+              style={{ maxHeight: 400 }} // Giới hạn chiều cao để không tràn màn hình
               contentContainerStyle={
-                eligible.length === 0 ? styles.emptyContainer : { gap: 6 }
+                eligible.length === 0 ? styles.emptyContainer : { gap: 10 }
               }
+              renderItem={renderItem} // Dùng hàm renderItem bạn đã viết bên trên
               ListEmptyComponent={
                 <Text style={styles.emptyText}>
-                  Không có bạn bè nào để thêm
+                  Không tìm thấy bạn bè phù hợp
                 </Text>
               }
             />
           </Pressable>
         </KeyboardAvoidingView>
-      </Pressable>
+      </View>
     </Modal>
   );
 }
 
-// ─── Styles ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.7)",
-    justifyContent: "center",
     alignItems: "center",
+    width: "auto",
   },
   centered: {
     width: "100%",
+    flex: 1, // Quan trọng: chiếm hết chiều cao khả dụng
+    justifyContent: "center", // Căn giữa nội dung theo chiều dọc
+    alignItems: "center", // Căn giữa nội dung theo chiều ngang
+  },
+  centeredView: {
+    flex: 1,
+    justifyContent: "center",
     alignItems: "center",
-    paddingHorizontal: 20,
+    width: "100%",
   },
   card: {
-    width: "100%",
-    maxWidth: 420,
+    width: "90%", // Chiếm 90% chiều ngang điện thoại
+    maxWidth: 400, // Giới hạn giống bản Web
+    alignSelf: "center", // Tự căn giữa chính nó trong cha
     backgroundColor: "#1e293b",
-    borderRadius: 16,
+    borderRadius: 20,
     padding: 20,
     borderWidth: 1,
     borderColor: "rgba(148,163,184,0.2)",
+    // Hiệu ứng bóng đổ
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.5,
+    shadowRadius: 15,
+    elevation: 10,
   },
 
-  // Header
+  // Style cho ô search để giống Web hơn
+  searchContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(15, 23, 42, 0.5)",
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: "rgba(148,163,184,0.1)",
+  },
+  searchIcon: { marginRight: 8 },
+  searchInput: {
+    flex: 1,
+    height: 45,
+    color: "#f1f5f9",
+    fontSize: 15,
+  },
+
+  // Style từng hàng friend item (như Web)
+  friendItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 12,
+    backgroundColor: "rgba(148,163,184,0.05)",
+    borderRadius: 12,
+    marginBottom: 8,
+    gap: 12,
+  },
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -211,42 +257,6 @@ const styles = StyleSheet.create({
   title: { color: "#f1f5f9", fontSize: 16, fontWeight: "600" },
   closeBtn: { padding: 4 },
 
-  // Search
-  searchBox: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "rgba(148,163,184,0.05)",
-    borderWidth: 1,
-    borderColor: "rgba(148,163,184,0.2)",
-    borderRadius: 10,
-    paddingHorizontal: 10,
-    marginBottom: 12,
-    gap: 8,
-  },
-  searchInput: { flex: 1, height: 40, color: "#f1f5f9", fontSize: 13 },
-
-  // List
-  list: { maxHeight: 320 },
-  emptyContainer: {
-    flexGrow: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    paddingVertical: 20,
-  },
-  emptyText: { color: "#475569", fontSize: 13 },
-
-  // Friend item
-  friendItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 10,
-    backgroundColor: "rgba(148,163,184,0.05)",
-    borderWidth: 1,
-    borderColor: "rgba(148,163,184,0.1)",
-  },
   avatar: {
     width: 36,
     height: 36,
@@ -254,23 +264,40 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     overflow: "hidden",
-    flexShrink: 0,
   },
-  avatarImg: { width: 36, height: 36 },
+  avatarImg: { width: "100%", height: "100%" },
   avatarText: { color: "white", fontWeight: "700", fontSize: 13 },
-  friendName: { flex: 1, color: "#f1f5f9", fontSize: 14 },
+  friendName: { flex: 1, color: "#f1f5f9", fontSize: 14, fontWeight: "500" },
 
-  // Add button
+  // Button đồng bộ style web
   addBtn: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
     backgroundColor: "#2563eb",
-    borderRadius: 8,
-    paddingHorizontal: 12,
     paddingVertical: 6,
-    flexShrink: 0,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    gap: 4,
   },
   addBtnDisabled: { backgroundColor: "#334155" },
   addBtnText: { color: "white", fontSize: 12, fontWeight: "600" },
+  modalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 20,
+  },
+  popupTitle: {
+    color: "#f1f5f9",
+    fontSize: 18,
+    fontWeight: "700",
+  },
+  emptyContainer: {
+    paddingVertical: 40,
+    alignItems: "center",
+  },
+  emptyText: {
+    color: "#64748b",
+    textAlign: "center",
+  },
 });
