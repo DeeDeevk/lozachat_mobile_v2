@@ -18,7 +18,7 @@ import SearchUserModal from "./SearchUserModal";
 // ─── Types ────────────────────────────────────────────────────────────────────
 export interface Conversation {
   _id: string;
-  group?: { name: string };
+  group?: { name: string; avatar?: string };
   participants: {
     _id: string;
     displayName: string;
@@ -284,7 +284,7 @@ export default function ConversationList({
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#080e1c" },
+  container: { flex: 0, backgroundColor: "#080e1c", maxHeight: "100%" },
 
   header: {
     flexDirection: "row",

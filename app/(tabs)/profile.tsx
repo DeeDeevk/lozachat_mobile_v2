@@ -6,6 +6,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
 import React, { useCallback, useEffect, useState } from "react";
+import { changePasswordService } from '@/services/otpService';
 import {
   ActivityIndicator,
   Alert,
@@ -284,20 +285,20 @@ function ChangePasswordModal({
   };
 
   const submit = async () => {
-    // if (!validate()) return;
-    // setSaving(true);
-    // try {
-    //   await userService.changePassword({ oldPassword: oldPw, newPassword: newPw });
-    //   setSaving(false);
-    //   Alert.alert('Thành công', 'Đổi mật khẩu thành công!');
-    //   reset(); onClose();
-    // } catch (error: any) {
-    //   setSaving(false);
-    //   const msg = error?.response?.data?.message ?? 'Đổi mật khẩu thất bại';
-    //   const isOldWrong = /old|incorrect|wrong|hiện tại|cũ/i.test(msg);
-    //   if (isOldWrong) setErrors(p => ({ ...p, old: msg }));
-    //   else Alert.alert('Lỗi', msg);
-    // }
+    if (!validate()) return;
+    setSaving(true);
+    try {
+      await changePasswordService.changePassword(oldPw, newPw);
+      setSaving(false);
+      Alert.alert('Thành công', 'Đổi mật khẩu thành công!');
+      reset(); onClose();
+    } catch (error: any) {
+      setSaving(false);
+      const msg = error?.response?.data?.message ?? 'Đổi mật khẩu thất bại';
+      const isOldWrong = /old|incorrect|wrong|hiện tại|cũ/i.test(msg);
+      if (isOldWrong) setErrors(p => ({ ...p, old: msg }));
+      else Alert.alert('Lỗi', msg);
+    }
   };
 
   return (

@@ -1,13 +1,13 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import axiosInstance from "../lib/axios";
 import type {
-    Comment,
-    CommentsResponse,
-    Post,
-    PostImage,
-    PostsResponse,
-    ReactionType,
-    Visibility,
+  Comment,
+  CommentsResponse,
+  Post,
+  PostImage,
+  PostsResponse,
+  ReactionType,
+  Visibility,
 } from "../types/post";
 
 // 🔥 helper auth

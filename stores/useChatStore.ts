@@ -106,7 +106,6 @@ export const useChatStore = create<ChatState>()(
 
       sendDirectMessage: async (recipientId, payload, conversationId) => {
         try {
-          // Hỗ trợ forward message (có conversationId) hoặc gửi bình thường
           const targetConvId = conversationId ?? get().activeConversationId;
 
           await chatService.sendDirecrMessages(
@@ -116,13 +115,15 @@ export const useChatStore = create<ChatState>()(
             targetConvId || undefined,
           );
 
-          set((state) => ({
-            conversations: state.conversations.map((c) =>
-              c._id === targetConvId ? { ...c, seenBy: [] } : c,
-            ),
-          }));
+          if (targetConvId) {
+            set((state) => ({
+              conversations: state.conversations.map((c) =>
+                c._id === targetConvId ? { ...c, seenBy: [] } : c,
+              ),
+            }));
+          }
         } catch (error) {
-          console.error("Lỗi xảy ra khi gửi direct message", error);
+          console.error("Lỗi gửi tin nhắn:", error);
         }
       },
 
@@ -229,7 +230,6 @@ export const useChatStore = create<ChatState>()(
           const exists = state.conversations.some(
             (c) => c._id === conversation._id,
           );
-
           if (exists) return state;
 
           return {
@@ -312,7 +312,7 @@ export const useChatStore = create<ChatState>()(
       updateLastRead: (
         userId: string,
         conversationId: string,
-        lastReadMessageId: string,
+        messageId: string,
       ) => {
         set((state) => ({
           conversations: state.conversations.map((conversation) => {
@@ -322,7 +322,7 @@ export const useChatStore = create<ChatState>()(
               ...conversation,
               participants: conversation.participants.map((participant: any) =>
                 participant._id === userId
-                  ? { ...participant, lastReadMessageId }
+                  ? { ...participant, lastReadMessageId: messageId }
                   : participant,
               ),
             };
@@ -333,7 +333,6 @@ export const useChatStore = create<ChatState>()(
       addTypingUser: (userId: string, conversationId: string) =>
         set((state) => {
           const current = state.typingUsersByConv[conversationId] || [];
-
           if (current.includes(userId)) return state;
 
           return {
@@ -347,7 +346,6 @@ export const useChatStore = create<ChatState>()(
       removeTypingUser: (userId: string, conversationId: string) =>
         set((state) => {
           const current = state.typingUsersByConv[conversationId] || [];
-
           return {
             typingUsersByConv: {
               ...state.typingUsersByConv,
@@ -534,23 +532,28 @@ export const useChatStore = create<ChatState>()(
           if (!targetConv) continue;
 
           const payload = {
-            content: message.content ?? undefined,
+            content: message.content,
             imgUrl: message.imgUrl || undefined,
           };
 
-          if (targetConv.type === "group") {
-            await sendGroupMessage(convId, payload);
-          } else {
-            const recipient = targetConv.participants.find(
-              (p: any) => p._id !== myId,
-            );
-            if (recipient) {
-              await sendDirectMessage(recipient._id, payload, convId);
+          try {
+            if (targetConv.type === "group") {
+              await sendGroupMessage(convId, payload);
+            } else {
+              const otherParticipant = targetConv.participants.find(
+                (p: any) => p._id !== myId,
+              );
+              if (otherParticipant) {
+                await sendDirectMessage(otherParticipant._id, payload, convId);
+              }
             }
+          } catch (err) {
+            console.error(`Lỗi khi gửi tới hội thoại ${convId}:`, err);
           }
         }
       },
 
+      // ==================== CÁC HÀM GROUP & JOIN REQUEST ====================
       createConversation: async (payload) => {
         try {
           set({ convoLoading: true });
