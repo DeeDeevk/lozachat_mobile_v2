@@ -644,16 +644,23 @@ export default function GroupConversationInfoPanel({
                 <TouchableOpacity
                   style={styles.menuItem}
                   onPress={() => {
-                    setSelectedMember(null);
+                    const memberToDelete = selectedMember; // Lưu lại ref trước khi đóng modal
+                    setSelectedMember(null); // Đóng modal chọn lựa
+
                     Alert.alert(
                       "Xác nhận",
-                      `Xóa ${selectedMember.displayName} khỏi nhóm?`,
+                      `Xóa ${memberToDelete.displayName} khỏi nhóm?`,
                       [
                         { text: "Hủy", style: "cancel" },
                         {
                           text: "Xóa",
                           style: "destructive",
-                          onPress: () => onRemoveMember?.(selectedMember._id),
+                          onPress: async () => {
+                            // ✅ Gọi prop được truyền từ [id].tsx
+                            if (onRemoveMember) {
+                              await onRemoveMember(memberToDelete._id);
+                            }
+                          },
                         },
                       ],
                     );
