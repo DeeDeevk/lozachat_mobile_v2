@@ -16,12 +16,104 @@ const registerSocketEvents = (
   socket.off("new-message");
   socket.off("message-recalled");
   socket.off("message-read");
+  socket.off("message-edited");
   socket.off("user-typing");
   socket.off("user-stop-typing");
   socket.off("stranger-declined");
   socket.off("stranger-accepted");
   socket.off("stranger-request");
   socket.off("stranger-removed");
+  socket.off("new-group-created");
+  socket.off("group-updated");
+  socket.off("member-role-updated");
+  socket.off("conversation-deleted-for-me");
+  socket.off("group-dissolved");
+  socket.off("left-group");
+  socket.off("member-left");
+  socket.off("removed-from-group");
+  socket.on("removed-from-group", ({ conversationId }) => {
+    useChatStore.setState((state) => ({
+      conversations: state.conversations.filter(
+        (c) => c._id !== conversationId,
+      ),
+      activeConversationId:
+        state.activeConversationId === conversationId
+          ? null
+          : state.activeConversationId,
+      messages: Object.fromEntries(
+        Object.entries(state.messages).filter(
+          ([key]) => key !== conversationId,
+        ),
+      ),
+    }));
+  });
+  socket.on("member-left", ({ conversationId, userId }) => {
+    useChatStore.setState((state) => ({
+      conversations: state.conversations.map((c) =>
+        c._id === conversationId
+          ? {
+              ...c,
+              participants: c.participants.filter((p) => p._id !== userId),
+            }
+          : c,
+      ),
+    }));
+  });
+  socket.on("left-group", ({ conversationId }) => {
+    useChatStore.setState((state) => ({
+      conversations: state.conversations.filter(
+        (c) => c._id !== conversationId,
+      ),
+      activeConversationId:
+        state.activeConversationId === conversationId
+          ? null
+          : state.activeConversationId,
+      messages: Object.fromEntries(
+        Object.entries(state.messages).filter(
+          ([key]) => key !== conversationId,
+        ),
+      ),
+    }));
+  });
+  socket.on("group-dissolved", ({ conversationId }) => {
+    useChatStore.setState((state) => ({
+      conversations: state.conversations.filter(
+        (c) => c._id !== conversationId,
+      ),
+      activeConversationId:
+        state.activeConversationId === conversationId
+          ? null
+          : state.activeConversationId,
+      messages: Object.fromEntries(
+        Object.entries(state.messages).filter(
+          ([key]) => key !== conversationId,
+        ),
+      ),
+    }));
+  });
+  socket.on("conversation-deleted-for-me", ({ conversationId }) => {
+    useChatStore.setState((state) => ({
+      conversations: state.conversations.filter(
+        (c) => c._id !== conversationId,
+      ),
+      activeConversationId:
+        state.activeConversationId === conversationId
+          ? null
+          : state.activeConversationId,
+      messages: Object.fromEntries(
+        Object.entries(state.messages).filter(
+          ([key]) => key !== conversationId,
+        ),
+      ),
+    }));
+  });
+  socket.off("group-join-request");
+  socket.off("join-request-reviewed");
+  socket.off("added-to-group");
+  socket.off("group-settings-updated");
+  socket.off("message-reacted");
+  socket.off("conversation:pins-updated");
+  socket.off("conversation:theme-updated");
   socket.on("connect", () => {
     console.log("Đã kết nối với socket");
   });
@@ -42,8 +134,48 @@ const registerSocketEvents = (
   socket.on("user-stop-typing", ({ userId, conversationId }) => {
     useChatStore.getState().removeTypingUser(userId, conversationId);
   });
+  socket.on(
+    "message-edited",
+    ({ messageId, conversationId, newContent, editedAt }) => {
+      useChatStore
+        .getState()
+        .applyEditMessage(messageId, conversationId, newContent, editedAt);
+    },
+  );
+  socket.on(
+    "message-edited",
+    ({ messageId, conversationId, newContent, editedAt }) => {
+      useChatStore
+        .getState()
+        .applyEditMessage(messageId, conversationId, newContent, editedAt);
+    },
+  );
+  socket.on("message-reacted", ({ messageId, conversationId, reactions }) => {
+    useChatStore
+      .getState()
+      .applyMessageReactions(messageId, conversationId, reactions || []);
+  });
+  socket.on(
+    "conversation:pins-updated",
+    ({ conversationId, pinnedMessages }) => {
+      useChatStore
+        .getState()
+        .applyPinnedMessages(conversationId, pinnedMessages || []);
+    },
+  );
+  socket.on("conversation:theme-updated", ({ conversationId, themeId }) => {
+    useChatStore.setState((state) => ({
+      conversations: state.conversations.map((c) =>
+        c._id === conversationId ? { ...c, chatThemeId: themeId } : c,
+      ),
+    }));
+  });
 
   socket.on("new-message", ({ message, conversation, unreadCounts }) => {
+    const existingConv = useChatStore
+      .getState()
+      .conversations.find((c) => c._id === conversation._id);
+
     useChatStore.getState().addMessage(message);
 
     const lastMessage = {
@@ -56,6 +188,12 @@ const registerSocketEvents = (
         avatarUrl: null,
       },
     };
+
+    if (!existingConv) {
+      // ✅ Conversation bị xóa trước đó → fetch lại và thêm vào store
+      useChatStore.getState().fetchConversations();
+      return;
+    }
 
     useChatStore.getState().updateConversation({
       ...conversation,
@@ -111,11 +249,117 @@ const registerSocketEvents = (
       console.log("New conversation from socket:", conversation);
       useChatStore.getState().addConversation(conversation);
     }
+
+    socket.emit("join-conversation", { conversationId: conversation.id });
   });
   socket.on("stranger-removed", ({ conversationId }) => {
     useChatStore.setState((state) => ({
       conversations: state.conversations.map((c) =>
         c._id === conversationId ? { ...c, isStranger: false } : c,
+      ),
+    }));
+  });
+  socket.on("new-group-created", (conversation) => {
+    const formattedParticipants = (conversation.participants || []).map(
+      (p: any) => ({
+        // Thêm || p._id và || p.displayName để dự phòng
+        _id: p.userId?._id || p._id,
+        displayName: p.userId?.displayName || p.displayName,
+        avatarUrl: p.userId?.avatarUrl || p.avatarUrl || null,
+        joinedAt: p.joinedAt,
+        lastReadMessageId: p.lastReadMessageId?.toString() ?? null,
+        role: p.role,
+      }),
+    );
+
+    const formattedConvo = {
+      ...conversation,
+      participants: formattedParticipants,
+      unreadCounts: conversation.unreadCounts || {},
+    };
+    useChatStore.getState().addConversation(formattedConvo);
+    socket.emit("join-conversation", { conversationId: conversation._id });
+  });
+  socket.on("group-updated", (updatedConversation) => {
+    useChatStore.setState((state) => {
+      const updated = state.conversations.map((c) =>
+        c._id === updatedConversation._id
+          ? {
+              ...c,
+              ...updatedConversation,
+              // ✅ Gán lastMessage với createdAt = now để sort lên đầu
+              lastMessage: {
+                ...(updatedConversation.lastMessage || c.lastMessage),
+                createdAt: new Date().toISOString(),
+              },
+            }
+          : c,
+      );
+
+      return {
+        conversations: updated.sort((a, b) => {
+          const aTime = a.lastMessage?.createdAt
+            ? new Date(a.lastMessage.createdAt).getTime()
+            : 0;
+          const bTime = b.lastMessage?.createdAt
+            ? new Date(b.lastMessage.createdAt).getTime()
+            : 0;
+          return bTime - aTime;
+        }),
+      };
+    });
+  });
+  socket.on("member-role-updated", ({ conversationId, targetUserId, role }) => {
+    useChatStore
+      .getState()
+      .updateMemberRole(conversationId, targetUserId, role);
+  });
+  socket.on("group-join-request", ({ conversationId, request }) => {
+    useChatStore.getState().addJoinRequest(request);
+  });
+
+  // Người được mời biết kết quả duyệt
+  socket.on("join-request-reviewed", ({ conversationId, status }) => {
+    if (status === "rejected") {
+      // Có thể toast thông báo bị từ chối ở đây
+      console.log(`Yêu cầu vào nhóm ${conversationId} bị từ chối`);
+    }
+    // Nếu approved thì "added-to-group" sẽ được emit tiếp theo
+  });
+
+  // Được thêm vào nhóm thành công
+  socket.on("added-to-group", ({ conversation }) => {
+    const formatted = {
+      ...conversation,
+      participants: (conversation.participants || []).map((p: any) => ({
+        _id: p.userId?._id || p._id,
+        displayName: p.userId?.displayName || p.displayName,
+        avatarUrl: p.userId?.avatarUrl || p.avatarUrl || null,
+        joinedAt: p.joinedAt,
+        lastReadMessageId: p.lastReadMessageId?.toString() ?? null,
+        role: p.role,
+      })),
+    };
+
+    const existing = useChatStore
+      .getState()
+      .conversations.find((c) => c._id === formatted._id);
+
+    if (existing) {
+      useChatStore.getState().updateConversation(formatted);
+    } else {
+      useChatStore.getState().addConversation(formatted);
+    }
+
+    // Join socket room
+    socket.emit("join-conversation", { conversationId: formatted._id });
+  });
+  socket.on("group-settings-updated", ({ conversationId, settings }) => {
+    useChatStore.setState((state) => ({
+      conversations: state.conversations.map((c) =>
+        c._id === conversationId && c.group
+          ? { ...c, group: { ...c.group, settings } }
+          : c,
       ),
     }));
   });
@@ -126,12 +370,11 @@ export const useSocketStore = create<SocketState>((set, get) => ({
   onlineUsers: [],
 
   connectSocket: () => {
-    console.log("CONNECT SOCKET CALLED");
     const accessToken = useAuthStore.getState().accessToken;
     const existingSocket = get().socket;
 
-    // ← Nếu socket cũ còn sống thì dùng lại, chỉ register events
-    if (existingSocket?.connected) {
+    // reuse nếu còn sống
+    if (existingSocket && existingSocket.connected) {
       registerSocketEvents(existingSocket, set);
       return;
     }
@@ -139,6 +382,9 @@ export const useSocketStore = create<SocketState>((set, get) => ({
     const socket: Socket = io(baseURL, {
       auth: { token: accessToken },
       transports: ["websocket"],
+      reconnection: true,
+      reconnectionAttempts: Infinity,
+      reconnectionDelay: 1000,
     });
 
     set({ socket });
