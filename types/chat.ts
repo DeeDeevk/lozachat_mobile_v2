@@ -4,6 +4,7 @@ export interface Participant {
   avatarUrl?: string | null;
   joinedAt: string;
   lastReadMessageId?: string;
+  role?: "owner" | "admin" | "member";
 }
 
 export interface SeenUser {
@@ -15,6 +16,7 @@ export interface SeenUser {
 export interface Group {
   name: string;
   createdBy: string;
+  avatar: string | null;
 }
 
 export interface LastMessage {
@@ -28,6 +30,22 @@ export interface LastMessage {
   };
 }
 
+export interface MessageReaction {
+  userId: string;
+  emoji: string;
+  createdAt: string;
+}
+
+export interface PinnedMessage {
+  messageId: string;
+  senderId?: string;
+  content?: string | null;
+  createdAt?: string;
+  isRecalled?: boolean;
+  pinnedAt: string;
+  pinnedBy?: string;
+}
+
 export interface Conversation {
   _id: string;
   type: "direct" | "group";
@@ -37,6 +55,8 @@ export interface Conversation {
   seenBy: SeenUser[];
   lastMessage: LastMessage | null;
   unreadCounts: Record<string, number>; // key = userId, value = unread count
+  chatThemeId?: string;
+  pinnedMessages?: PinnedMessage[];
   createdAt: string;
   updatedAt: string;
   isStranger: boolean;
@@ -60,6 +80,9 @@ export interface Message {
   isRecalled?: boolean;
   recalledAt?: string;
   deletedFor?: string[];
+  isEdited?: boolean;
+  editedAt?: string;
+  reactions?: MessageReaction[];
 }
 
 export type ChatMessageKind =
@@ -70,6 +93,7 @@ export type ChatMessageKind =
   | "file"
   | "audio"
   | "sticker"
+  | "call"
   | "poll"
   | "poll_vote";
 
@@ -98,14 +122,28 @@ export interface ReplyMeta {
   preview: string;
 }
 
+export interface CallMeta {
+  callType: "voice" | "video";
+  status: "ended";
+  startedAt: string;
+  endedAt: string;
+  durationSeconds: number;
+  initiatedBy: string;
+  endedBy?: string;
+  upgradedFrom?: "voice" | "video";
+  upgradedTo?: "voice" | "video";
+}
+
 export interface ChatStructuredPayload {
   version: 1;
   kind: ChatMessageKind;
   text?: string;
   emoji?: string;
   attachment?: ChatAttachment;
+  attachments?: ChatAttachment[];
   stickerUrl?: string;
   reply?: ReplyMeta;
+  call?: CallMeta;
   poll?: {
     id: string;
     question: string;
