@@ -14,6 +14,8 @@ import { useSocketStore } from "../stores/useSocketStore";
 import { getSafeMessagePreview } from "../utils/chatMessageCodec";
 import { formatTime } from "../utils/formatTime";
 import SearchUserModal from "./SearchUserModal";
+import MiniAvatar from "./MiniAvatar";
+import CreateGroupModal from "./CreateGroupModal";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 export interface Conversation {
@@ -67,7 +69,8 @@ export default function ConversationList({
 }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTab, setActiveTab] = useState<Tab>("all");
-  const [showSearchModal, setShowSearchModal] = useState(false); // quản lý modal ở đây, giống web
+  const [showSearchModal, setShowSearchModal] = useState(false);
+  const [showCreateGroupModal, setShowCreateGroupModal] = useState(false);
 
   const { user } = useAuthStore();
   const { onlineUsers } = useSocketStore();
@@ -81,26 +84,44 @@ export default function ConversationList({
     return getOtherUser(conv)?.displayName || "Unknown";
   };
 
-  const getAvatarUrl = (conv: Conversation) => {
-    if (conv.group) return null;
-    return getOtherUser(conv)?.avatarUrl ?? null;
-  };
-
   const isOnline = (conv: Conversation) => {
     if (conv.group) return false;
     const other = getOtherUser(conv);
-    return other ? onlineUsers.includes(other._id) : false;
+    if (!other) return false;
+    return onlineUsers.some((id) => String(id) === String(other._id));
   };
 
-  // ─── Filter ───────────────────────────────────────────────────────────────
-  const filtered = conversations.filter((c) => {
-    const matchSearch = getName(c)
-      .toLowerCase()
-      .includes(searchQuery.toLowerCase());
-    if (activeTab === "group") return matchSearch && !!c.group;
-    if (activeTab === "direct") return matchSearch && !c.group;
-    return matchSearch;
-  });
+  // Lấy danh sách participants để render multi-avatar (giống web)
+  const getDisplayParticipants = (conv: Conversation) => {
+    if (!user?.userId) return [];
+    if (!conv.group) {
+      const other = getOtherUser(conv);
+      return other ? [other] : [];
+    }
+    return (conv.participants || [])
+      .filter((p) => String(p._id) !== String(user.userId))
+      .slice(0, 3);
+  };
+
+  // ─── Filter + sort (giống web) ────────────────────────────────────────────
+  const filtered = conversations
+    .filter((c) => {
+      const matchSearch = getName(c)
+        .toLowerCase()
+        .includes(searchQuery.toLowerCase());
+      if (activeTab === "group") return matchSearch && !!c.group;
+      if (activeTab === "direct") return matchSearch && !c.group;
+      return matchSearch;
+    })
+    .sort((a, b) => {
+      const timeA = a.lastMessage?.createdAt
+        ? new Date(a.lastMessage.createdAt).getTime()
+        : 0;
+      const timeB = b.lastMessage?.createdAt
+        ? new Date(b.lastMessage.createdAt).getTime()
+        : 0;
+      return timeB - timeA;
+    });
 
   // ─── Tabs config ──────────────────────────────────────────────────────────
   const TABS: { key: Tab; label: string }[] = [
@@ -109,14 +130,109 @@ export default function ConversationList({
     { key: "group", label: "Nhóm chat" },
   ];
 
+  // ─── Render Avatar (mirror web logic) ────────────────────────────────────
+  const renderAvatar = (conv: Conversation, isActive: boolean) => {
+    const name = getName(conv);
+    const color = getAvatarColor(name);
+    const online = isOnline(conv);
+    const displayParticipants = getDisplayParticipants(conv);
+    const count = displayParticipants.length;
+
+    const shadowStyle = isActive
+      ? {
+          shadowColor: color,
+          shadowOpacity: 0.5,
+          shadowRadius: 8,
+          elevation: 6,
+        }
+      : {};
+
+    let avatarContent: React.ReactNode;
+
+    // ✅ Nhóm có avatar riêng → hiện ảnh nhóm
+    if (conv.group?.avatar) {
+      avatarContent = (
+        <View style={[styles.avatarBox, shadowStyle]}>
+          <Image source={{ uri: conv.group.avatar }} style={styles.avatarImg} />
+        </View>
+      );
+    } else if (count <= 1) {
+      // Chat 1-1 hoặc nhóm 1 người
+      avatarContent = (
+        <View style={[styles.avatarBox, shadowStyle, { overflow: "hidden" }]}>
+          {count === 1 ? (
+            <MiniAvatar p={displayParticipants[0]} fontSize={14} />
+          ) : (
+            <MiniAvatar p={{ displayName: name }} fontSize={14} />
+          )}
+        </View>
+      );
+    } else if (count === 2) {
+      // 2 avatar chồng nhau
+      avatarContent = (
+        <View style={{ width: 50, height: 50, position: "relative" }}>
+          <View style={[styles.multiAvatarTopLeft, { overflow: "hidden" }]}>
+            <MiniAvatar p={displayParticipants[0]} fontSize={10} />
+          </View>
+          <View
+            style={[
+              styles.multiAvatarBottomRight,
+              { overflow: "hidden", borderWidth: 2, borderColor: "#080e1c" },
+            ]}
+          >
+            <MiniAvatar p={displayParticipants[1]} fontSize={10} />
+          </View>
+        </View>
+      );
+    } else {
+      // 3 avatar chồng nhau
+      avatarContent = (
+        <View style={{ width: 50, height: 50, position: "relative" }}>
+          <View style={[styles.triAvatarTop, { overflow: "hidden" }]}>
+            <MiniAvatar p={displayParticipants[0]} fontSize={9} />
+          </View>
+          <View
+            style={[
+              styles.triAvatarBottomLeft,
+              { overflow: "hidden", borderWidth: 2, borderColor: "#080e1c" },
+            ]}
+          >
+            <MiniAvatar p={displayParticipants[1]} fontSize={9} />
+          </View>
+          <View
+            style={[
+              styles.triAvatarBottomRight,
+              { overflow: "hidden", borderWidth: 2, borderColor: "#080e1c" },
+            ]}
+          >
+            <MiniAvatar p={displayParticipants[2]} fontSize={9} />
+          </View>
+        </View>
+      );
+    }
+
+    return (
+      <View style={styles.avatarWrap}>
+        {avatarContent}
+        {/* Dot online: chỉ hiện khi chat 1-1 */}
+        {online && count <= 1 && (
+          <View style={[styles.statusDot, styles.dotOnline]} />
+        )}
+      </View>
+    );
+  };
+
   // ─── Render item ──────────────────────────────────────────────────────────
   const renderItem = ({ item }: { item: Conversation }) => {
     const name = getName(item);
-    const avatarUrl = getAvatarUrl(item);
-    const online = isOnline(item);
-    const color = getAvatarColor(name);
-    const unread = item.unread ?? 0;
     const isActive = item._id === activeId;
+
+    // Đọc unreadCounts giống web (MongoDB Map serialize thành object)
+    const unread =
+      (item as any).unreadCounts?.[user?.userId ?? ""] ??
+      (item as any).unreadCounts?.get?.(user?.userId ?? "") ??
+      item.unread ??
+      0;
 
     return (
       <TouchableOpacity
@@ -124,35 +240,7 @@ export default function ConversationList({
         onPress={() => onSelectConversation(item._id)}
         activeOpacity={0.7}
       >
-        {/* Avatar */}
-        <View style={styles.avatarWrap}>
-          <View
-            style={[
-              styles.avatarBox,
-              { backgroundColor: color },
-              isActive && {
-                shadowColor: color,
-                shadowOpacity: 0.5,
-                shadowRadius: 8,
-                elevation: 6,
-              },
-            ]}
-          >
-            {avatarUrl ? (
-              <Image source={{ uri: avatarUrl }} style={styles.avatarImg} />
-            ) : (
-              <Text style={styles.avatarText}>
-                {name.slice(0, 2).toUpperCase()}
-              </Text>
-            )}
-          </View>
-          <View
-            style={[
-              styles.statusDot,
-              online ? styles.dotOnline : styles.dotOffline,
-            ]}
-          />
-        </View>
+        {renderAvatar(item, isActive)}
 
         {/* Info */}
         <View style={styles.info}>
@@ -164,11 +252,12 @@ export default function ConversationList({
               {name}
             </Text>
             <View style={styles.rowRight}>
-              {item.isStranger && item.strangerStatus === "pending" && (
-                <View style={styles.strangerBadge}>
-                  <Text style={styles.strangerBadgeText}>Mới</Text>
-                </View>
-              )}
+              {(item as any).isStranger &&
+                (item as any).strangerStatus === "pending" && (
+                  <View style={styles.strangerBadge}>
+                    <Text style={styles.strangerBadgeText}>Mới</Text>
+                  </View>
+                )}
               {item.lastMessage && (
                 <Text style={styles.time}>
                   {formatTime(item.lastMessage.createdAt)}
@@ -182,12 +271,13 @@ export default function ConversationList({
               style={[styles.lastMsg, unread > 0 && styles.lastMsgUnread]}
               numberOfLines={1}
             >
-              {getSafeMessagePreview
-                ? getSafeMessagePreview(
-                    item.lastMessage?.content,
-                    "Chưa có tin nhắn",
-                  )
-                : item.lastMessage?.content || "Chưa có tin nhắn"}
+              {(() => {
+                const content = item.lastMessage?.content;
+                if (content && content.startsWith("{{system}}")) {
+                  return content.replace("{{system}}", "");
+                }
+                return getSafeMessagePreview(content, "Chưa có tin nhắn");
+              })()}
             </Text>
             {unread > 0 && (
               <View style={styles.unreadBadge}>
@@ -218,7 +308,7 @@ export default function ConversationList({
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.iconBtn}
-              onPress={onOpenCreateGroup}
+              onPress={() => setShowCreateGroupModal(true)}
             >
               <UsersRound size={20} color="white" />
             </TouchableOpacity>
@@ -274,9 +364,14 @@ export default function ConversationList({
           }
         />
       </View>
+
       <SearchUserModal
         isOpen={showSearchModal}
         onClose={() => setShowSearchModal(false)}
+      />
+      <CreateGroupModal
+        isOpen={showCreateGroupModal}
+        onClose={() => setShowCreateGroupModal(false)}
       />
     </>
   );
@@ -346,7 +441,8 @@ const styles = StyleSheet.create({
   },
   activeItem: { backgroundColor: "rgba(59,130,246,0.1)" },
 
-  avatarWrap: { position: "relative", flexShrink: 0 },
+  // Avatar
+  avatarWrap: { position: "relative", flexShrink: 0, width: 50, height: 50 },
   avatarBox: {
     width: 50,
     height: 50,
@@ -356,7 +452,54 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   avatarImg: { width: 50, height: 50 },
-  avatarText: { color: "white", fontWeight: "700", fontSize: 14 },
+
+  // Multi-avatar (2 người)
+  multiAvatarTopLeft: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+  },
+  multiAvatarBottomRight: {
+    position: "absolute",
+    bottom: 0,
+    right: 0,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+  },
+
+  // Multi-avatar (3 người)
+  triAvatarTop: {
+    position: "absolute",
+    top: 0,
+    left: 10,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    zIndex: 1,
+  },
+  triAvatarBottomLeft: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    zIndex: 2,
+  },
+  triAvatarBottomRight: {
+    position: "absolute",
+    bottom: 0,
+    right: 0,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    zIndex: 3,
+  },
+
   statusDot: {
     position: "absolute",
     bottom: 1,
@@ -368,7 +511,6 @@ const styles = StyleSheet.create({
     borderColor: "#080e1c",
   },
   dotOnline: { backgroundColor: "#10b981" },
-  dotOffline: { backgroundColor: "#334155" },
 
   info: { flex: 1, minWidth: 0 },
   row: {

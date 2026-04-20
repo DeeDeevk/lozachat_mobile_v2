@@ -1,24 +1,41 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   View,
   Text,
   ScrollView,
   Modal,
-  Pressable,
   Image,
   TextInput,
   StyleSheet,
   TouchableOpacity,
+  Dimensions,
+  Alert,
+  Platform,
+  Switch,
+  ActivityIndicator,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   ChevronDown,
   File,
   Link as LinkIcon,
   X,
   Search,
+  Pin,
+  Bell,
+  Settings,
+  Edit,
+  LogOut,
+  Trash2,
+  UserPlus,
+  UserCheck,
+  UserX,
 } from "lucide-react-native";
-import type { Conversation, Message } from "@/types/chat";
+import type { Conversation, Message, Participant } from "@/types/chat";
 import { decodeChatPayload } from "@/utils/chatMessageCodec";
+import EditGroupMobileModal from "./EditGroupModal";
+
+const { width } = Dimensions.get("window");
 
 interface GroupConversationInfoPanelProps {
   visible: boolean;
@@ -26,8 +43,24 @@ interface GroupConversationInfoPanelProps {
   conversation: Conversation;
   messages: Message[];
   currentUserId?: string;
+  onUpdateMemberRole?: (targetUserId: string, role: "admin" | "member") => void;
+  onRemoveMember?: (targetUserId: string) => void;
+  // Các props mới đồng bộ từ web
+  onLeaveGroup?: () => void;
+  onDissolveGroup?: () => void;
+  onDeleteConversation?: () => void;
+  pendingRequests?: any[];
+  onReviewRequest?: (
+    requestId: string,
+    action: "approved" | "rejected",
+  ) => Promise<void>;
+  onUpdateSettings?: (settings: {
+    requireApprovalToJoin: boolean;
+  }) => Promise<void>;
+  isAdminOrOwnerProps?: boolean;
 }
 
+// ─── HELPERS ──────────────────────────────────────────────────────────────────
 const IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg"];
 
 function isImageFile(filename: string): boolean {
@@ -35,7 +68,7 @@ function isImageFile(filename: string): boolean {
   return IMAGE_EXTENSIONS.includes(ext);
 }
 
-function getAvatarColor(name: string) {
+function getAvatarColor(name: string = "Unknown") {
   const colors = [
     "#3b82f6",
     "#10b981",
@@ -51,245 +84,162 @@ function getAvatarColor(name: string) {
   return colors[Math.abs(hash) % colors.length];
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.7)",
-  },
-  panel: {
-    position: "absolute",
-    right: 0,
-    top: 0,
-    bottom: 0,
-    width: "100%",
-    backgroundColor: "#0f172a",
-    borderLeftWidth: 1,
-    borderLeftColor: "rgba(148,163,184,0.15)",
-  },
-  panelContent: {
-    flex: 1,
-  },
-  header: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "rgba(148,163,184,0.15)",
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  headerTitle: {
-    color: "#f1f5f9",
-    fontSize: 16,
-    fontWeight: "600",
-  },
-  closeBtn: {
-    padding: 8,
-  },
-  profileSection: {
-    paddingHorizontal: 16,
-    paddingVertical: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: "rgba(148,163,184,0.15)",
-    alignItems: "center",
-    gap: 12,
-  },
-  avatarContainer: {
-    width: 80,
-    height: 80,
-    position: "relative",
-  },
-  avatarItem: {
-    position: "absolute",
-    borderRadius: 40,
-    borderWidth: 2,
-    borderColor: "#0f172a",
-    overflow: "hidden",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  profileName: {
-    color: "#f1f5f9",
-    fontSize: 18,
-    fontWeight: "700",
-  },
-  sectionHeader: {
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: "rgba(148,163,184,0.15)",
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  sectionHeaderText: {
-    color: "#f1f5f9",
-    fontSize: 14,
-    fontWeight: "600",
-  },
-  sectionContent: {
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-  },
-  emptyText: {
-    color: "#94a3b8",
-    fontSize: 12,
-    textAlign: "center",
-    paddingVertical: 12,
-  },
-  searchInput: {
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    backgroundColor: "rgba(148,163,184,0.05)",
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "rgba(148,163,184,0.2)",
-    color: "#f1f5f9",
-    fontSize: 12,
-    marginBottom: 12,
-  },
-  memberItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 10,
-    paddingVertical: 10,
-    backgroundColor: "rgba(148,163,184,0.08)",
-    borderRadius: 8,
-    marginBottom: 8,
-    gap: 10,
-  },
-  memberAvatar: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  memberName: {
-    color: "#f1f5f9",
-    fontSize: 13,
-    flex: 1,
-  },
-  mediaGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-  },
-  mediaItem: {
-    width: "31%",
-    aspectRatio: 1,
-    backgroundColor: "#3b82f6",
-    borderRadius: 10,
-    overflow: "hidden",
-  },
-  fileItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 10,
-    paddingVertical: 10,
-    backgroundColor: "rgba(148,163,184,0.08)",
-    borderRadius: 8,
-    marginBottom: 8,
-    gap: 8,
-  },
-  fileText: {
-    color: "#2563eb",
-    fontSize: 12,
-    flex: 1,
-  },
-  linkItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 10,
-    paddingVertical: 10,
-    backgroundColor: "rgba(148,163,184,0.08)",
-    borderRadius: 8,
-    marginBottom: 8,
-    gap: 8,
-  },
-  linkText: {
-    color: "#2563eb",
-    fontSize: 12,
-    flex: 1,
-  },
-  viewAllBtn: {
-    marginTop: 8,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "rgba(37,99,235,0.3)",
-    backgroundColor: "rgba(37,99,235,0.08)",
-  },
-  viewAllBtnText: {
-    color: "#2563eb",
-    fontSize: 13,
-    fontWeight: "600",
-    textAlign: "center",
-  },
-});
+const Section = ({ title, count, isOpen, onToggle, children }: any) => (
+  <View style={styles.sectionWrap}>
+    <TouchableOpacity
+      style={styles.sectionHeader}
+      onPress={onToggle}
+      activeOpacity={0.7}
+    >
+      <Text style={styles.sectionTitle}>
+        {title} {count !== undefined ? `(${count})` : ""}
+      </Text>
+      <ChevronDown
+        size={20}
+        color="#94a3b8"
+        style={{ transform: [{ rotate: isOpen ? "180deg" : "0deg" }] }}
+      />
+    </TouchableOpacity>
+    {isOpen && <View style={styles.sectionContent}>{children}</View>}
+  </View>
+);
 
+// ─── MAIN COMPONENT ──────────────────────────────────────────────────────────
 export default function GroupConversationInfoPanel({
   visible,
   onClose,
   conversation,
   messages,
   currentUserId,
+  onUpdateMemberRole,
+  onRemoveMember,
+  onLeaveGroup,
+  onDissolveGroup,
+  onDeleteConversation,
+  pendingRequests = [],
+  onReviewRequest,
+  onUpdateSettings,
 }: GroupConversationInfoPanelProps) {
+  const insets = useSafeAreaInsets();
   const [expandedSections, setExpandedSections] = useState<
     Record<string, boolean>
   >({
     media: true,
-    files: true,
-    members: false,
-    links: true,
+    files: false,
+    members: true,
+    links: false,
   });
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [searchMember, setSearchMember] = useState("");
-
-  const displayParticipants = useMemo(
-    () => (conversation.participants || []).slice(0, 3),
-    [conversation.participants],
+  const [selectedMember, setSelectedMember] = useState<Participant | null>(
+    null,
+  );
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [isUpdating, setIsUpdating] = useState(false);
+  const [processingIds, setProcessingIds] = useState<string[]>([]);
+  const [requireApproval, setRequireApproval] = useState(
+    conversation.group?.settings?.requireApprovalToJoin || false,
   );
 
+  const currentParticipant = useMemo(
+    () => conversation.participants.find((p) => p._id === currentUserId),
+    [conversation.participants, currentUserId],
+  );
+
+  const isOwner = currentParticipant?.role === "owner";
+  const isAdminOrOwner = isOwner || currentParticipant?.role === "admin";
+
+  useEffect(() => {
+    setRequireApproval(
+      conversation.group?.settings?.requireApprovalToJoin || false,
+    );
+  }, [conversation.group?.settings?.requireApprovalToJoin]);
+
+  const handleLongPressMember = (member: Participant) => {
+    if (!isAdminOrOwner) return;
+    if (member._id === currentUserId) return;
+    if (member.role === "owner") return;
+
+    setSelectedMember(member);
+  };
+
+  const handleUpdateRole = async (targetId, role) => {
+    if (isUpdating) return; // Nếu đang chạy thì chặn
+    setIsUpdating(true);
+    try {
+      await onUpdateMemberRole?.(targetId, role);
+      setSelectedMember(null);
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  const handleReview = async (id: string, action: "approved" | "rejected") => {
+    if (processingIds.includes(id)) return;
+
+    setProcessingIds((prev) => [...prev, id]);
+
+    try {
+      await onReviewRequest?.(id, action);
+    } catch (err) {
+      Alert.alert("Lỗi", "Không thể xử lý yêu cầu");
+    } finally {
+      setProcessingIds((prev) => prev.filter((x) => x !== id));
+    }
+  };
+
+  // ─── DATA LOGIC ────────────────────────────────────────────────────────────
   const mediaFiles = useMemo(() => {
-    const media: Array<{
-      type: "image" | "audio";
-      url: string;
-      timestamp: string;
-      senderName?: string;
-    }> = [];
+    const media: any[] = [];
 
     messages.forEach((msg) => {
       const payload = decodeChatPayload(msg.content);
       if (!payload) return;
 
+      const kind = payload.kind?.toLowerCase(); // ✅ normalize
+
       const sender = conversation.participants.find(
         (p) => p._id === msg.senderId,
       );
 
-      if (payload.kind === "image" && payload.attachment) {
+      const pushImage = (url: string) => {
+        if (!url) return;
         media.push({
           type: "image",
-          url: payload.attachment.url,
+          url,
           timestamp: msg.createdAt,
           senderName: sender?.displayName,
         });
-      } else if (payload.kind === "audio" && payload.attachment) {
-        media.push({
-          type: "audio",
-          url: payload.attachment.url,
-          timestamp: msg.createdAt,
-          senderName: sender?.displayName,
-        });
-      } else if (payload.kind === "file" && payload.attachment) {
+      };
+
+      // ✅ single image
+      if (kind === "image" && payload.attachment?.url) {
+        pushImage(payload.attachment.url);
+      }
+
+      // ✅ file nhưng là ảnh
+      if (kind === "file" && payload.attachment) {
         if (isImageFile(payload.attachment.name)) {
-          media.push({
-            type: "image",
-            url: payload.attachment.url,
-            timestamp: msg.createdAt,
-            senderName: sender?.displayName,
-          });
+          pushImage(payload.attachment.url);
         }
+      }
+
+      // ✅ multiple attachments
+      if (payload.attachments?.length) {
+        payload.attachments.forEach((att: any) => {
+          if (isImageFile(att.name)) {
+            pushImage(att.url);
+          }
+        });
+      }
+
+      // ✅ fallback nếu BE khác format
+      if ((msg as any).attachments?.length) {
+        (msg as any).attachments.forEach((att: any) => {
+          if (isImageFile(att.name)) {
+            pushImage(att.url);
+          }
+        });
       }
     });
 
@@ -299,391 +249,600 @@ export default function GroupConversationInfoPanel({
     );
   }, [messages, conversation.participants]);
 
-  const fileList = useMemo(() => {
-    const files: Array<{
-      url: string;
-      name: string;
-      timestamp: string;
-      senderName?: string;
-    }> = [];
-
-    messages.forEach((msg) => {
-      const payload = decodeChatPayload(msg.content);
-      if (!payload) return;
-
-      if (payload.kind === "file" && payload.attachment) {
-        if (!isImageFile(payload.attachment.name)) {
-          const sender = conversation.participants.find(
-            (p) => p._id === msg.senderId,
-          );
-          files.push({
-            url: payload.attachment.url,
-            name: payload.attachment.name,
-            timestamp: msg.createdAt,
-            senderName: sender?.displayName,
-          });
-        }
-      }
-    });
-
-    return files.sort(
-      (a, b) =>
-        new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
-    );
-  }, [messages, conversation.participants]);
-
-  const links = useMemo(() => {
-    const linkList: Array<{
-      url: string;
-      preview: string;
-      timestamp: string;
-      senderName?: string;
-    }> = [];
-
-    messages.forEach((msg) => {
-      const payload = decodeChatPayload(msg.content);
-      if (!payload) return;
-
-      if (payload.kind === "text" && payload.text) {
-        const urlRegex = /(https?:\/\/[^\s]+)/g;
-        const matches = payload.text.match(urlRegex);
-        if (matches) {
-          const sender = conversation.participants.find(
-            (p) => p._id === msg.senderId,
-          );
-          matches.forEach((url) => {
-            linkList.push({
-              url,
-              preview: url.length > 40 ? url.substring(0, 40) + "..." : url,
-              timestamp: msg.createdAt,
-              senderName: sender?.displayName,
-            });
-          });
-        }
-      }
-    });
-
-    return linkList.sort(
-      (a, b) =>
-        new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
-    );
-  }, [messages, conversation.participants]);
-
   const filteredMembers = useMemo(() => {
-    if (!searchMember.trim()) return conversation.participants;
-    return conversation.participants.filter((p) =>
+    return (conversation.participants || []).filter((p) =>
       p.displayName.toLowerCase().includes(searchMember.toLowerCase()),
     );
   }, [conversation.participants, searchMember]);
 
   const toggleSection = (section: string) => {
-    setExpandedSections((prev) => ({
-      ...prev,
-      [section]: !prev[section],
-    }));
+    setExpandedSections((prev) => ({ ...prev, [section]: !prev[section] }));
   };
 
-  const mediaDisplay = mediaFiles.slice(0, 6);
-  const fileDisplay = fileList.slice(0, 3);
-  const linkDisplay = links.slice(0, 3);
-
   return (
-    <Modal visible={visible} transparent animationType="fade">
-      <Pressable style={styles.container} onPress={onClose}>
-        <Pressable style={styles.panel} onPress={() => {}}>
-          <View style={styles.header}>
-            <Text style={styles.headerTitle}>Thông tin nhóm</Text>
-            <Pressable style={styles.closeBtn} onPress={onClose}>
-              <X size={20} color="#94a3b8" />
-            </Pressable>
+    <Modal
+      visible={visible}
+      transparent={false}
+      animationType="slide"
+      presentationStyle="fullScreen"
+      onRequestClose={onClose}
+    >
+      <View style={[styles.container, { backgroundColor: "#0f172a" }]}>
+        {/* Header */}
+        <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
+          <TouchableOpacity onPress={onClose} style={styles.headerBtn}>
+            <X size={26} color="white" />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Thông tin nhóm</Text>
+          <TouchableOpacity
+            onPress={() => setShowEditModal(true)}
+            style={styles.headerBtn}
+          >
+            <Edit size={20} color="white" />
+          </TouchableOpacity>
+        </View>
+
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{ paddingBottom: insets.bottom + 20 }}
+        >
+          {/* Profile Section */}
+          <View style={styles.profileSection}>
+            <View style={styles.bigAvatarContainer}>
+              {conversation.group?.avatar ? (
+                <Image
+                  source={{ uri: conversation.group.avatar }}
+                  style={styles.bigAvatar}
+                />
+              ) : (
+                <View style={[styles.bigAvatar, styles.avatarPlaceholder]}>
+                  <Text style={styles.avatarTxtLarge}>
+                    {conversation.group?.name?.substring(0, 1).toUpperCase() ||
+                      "G"}
+                  </Text>
+                </View>
+              )}
+            </View>
+            <Text style={styles.profileName}>
+              {conversation.group?.name || "Nhóm chat"}
+            </Text>
+
+            {/* Quick Actions */}
+            <View style={styles.quickActions}>
+              <TouchableOpacity style={styles.actionBtn}>
+                <View style={styles.actionIconCircle}>
+                  <Pin size={20} color="#94a3b8" />
+                </View>
+                <Text style={styles.actionLabel}>Ghim</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.actionBtn}>
+                <View style={styles.actionIconCircle}>
+                  <Bell size={20} color="#94a3b8" />
+                </View>
+                <Text style={styles.actionLabel}>Thông báo</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.actionBtn}>
+                <View style={styles.actionIconCircle}>
+                  <Settings size={20} color="#94a3b8" />
+                </View>
+                <Text style={styles.actionLabel}>Quản lý</Text>
+              </TouchableOpacity>
+            </View>
           </View>
 
-          <ScrollView
-            style={styles.panelContent}
-            showsVerticalScrollIndicator={false}
-          >
-            {/* Group Profile Section */}
-            <View style={styles.profileSection}>
-              <View style={styles.avatarContainer}>
-                {displayParticipants.map((p, idx) => {
-                  const positions = [
-                    { top: 0, left: 0, size: 50 },
-                    { top: 0, right: 0, size: 40 },
-                    { bottom: 0, left: 15, size: 40 },
-                  ];
-                  const pos = positions[idx];
+          {/* Pending Requests */}
+          {isAdminOrOwner && pendingRequests.length > 0 && (
+            <Section
+              title="Yêu cầu chờ duyệt"
+              count={pendingRequests.length}
+              isOpen={true}
+              onToggle={() => {}}
+            >
+              {pendingRequests.map((req) => (
+                <View key={req._id} style={styles.requestCard}>
+                  <View style={styles.requestInfo}>
+                    <Text style={styles.requestName}>
+                      {req.invitedUserId?.displayName}
+                    </Text>
+                    <Text style={styles.requestSub}>
+                      Mời bởi {req.invitedBy?.displayName}
+                    </Text>
+                  </View>
+                  <View style={styles.requestActions}>
+                    <TouchableOpacity
+                      onPress={() => handleReview(req._id, "approved")}
+                      style={styles.approveBtn}
+                      disabled={processingIds.includes(req._id)}
+                    >
+                      {processingIds.includes(req._id) ? (
+                        <ActivityIndicator size="small" color="#10b981" />
+                      ) : (
+                        <UserCheck size={18} color="#10b981" />
+                      )}
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={() => handleReview(req._id, "rejected")}
+                      style={styles.rejectBtn}
+                      disabled={processingIds.includes(req._id)}
+                    >
+                      {processingIds.includes(req._id) ? (
+                        <ActivityIndicator size="small" color="#ef4444" />
+                      ) : (
+                        <UserX size={18} color="#ef4444" />
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ))}
+            </Section>
+          )}
 
-                  return (
+          {/* Members Section */}
+          <Section
+            title="Thành viên"
+            count={conversation.participants.length}
+            isOpen={expandedSections.members}
+            onToggle={() => toggleSection("members")}
+          >
+            <View style={styles.searchWrapper}>
+              <Search size={16} color="#94a3b8" style={styles.searchIcon} />
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Tìm thành viên..."
+                placeholderTextColor="#64748b"
+                value={searchMember}
+                onChangeText={setSearchMember}
+              />
+            </View>
+            {filteredMembers.map((member) => (
+              <TouchableOpacity
+                key={member._id}
+                style={styles.memberItem}
+                onLongPress={() => handleLongPressMember(member)}
+                activeOpacity={0.7}
+              >
+                <View
+                  style={[
+                    styles.miniAvatar,
+                    {
+                      backgroundColor: member.avatarUrl
+                        ? "transparent"
+                        : getAvatarColor(member.displayName),
+                    },
+                  ]}
+                >
+                  {member.avatarUrl ? (
+                    <Image
+                      source={{ uri: member.avatarUrl }}
+                      style={styles.miniAvatarImg}
+                    />
+                  ) : (
+                    <Text style={styles.avatarTxt}>
+                      {member.displayName?.[0]?.toUpperCase()}
+                    </Text>
+                  )}
+                </View>
+                <View style={styles.memberInfo}>
+                  <Text style={styles.memberName}>
+                    {member.displayName}{" "}
+                    {member._id === currentUserId && (
+                      <Text style={styles.meTag}>(Bạn)</Text>
+                    )}
+                  </Text>
+                  {member.role !== "member" && (
                     <View
-                      key={p._id}
                       style={[
-                        styles.avatarItem,
-                        {
-                          width: pos.size,
-                          height: pos.size,
-                          top: pos.top,
-                          bottom: pos.bottom,
-                          left: pos.left,
-                          right: pos.right,
-                          backgroundColor: p.avatarUrl
-                            ? undefined
-                            : getAvatarColor(p.displayName),
-                        },
+                        styles.roleBadge,
+                        member.role === "owner"
+                          ? styles.ownerBadge
+                          : styles.adminBadge,
                       ]}
                     >
-                      {p.avatarUrl ? (
-                        <Image
-                          source={{ uri: p.avatarUrl }}
-                          style={{ width: "100%", height: "100%" }}
-                        />
-                      ) : (
-                        <Text
-                          style={{
-                            color: "white",
-                            fontWeight: "700",
-                            fontSize: idx === 0 ? 16 : 12,
-                          }}
-                        >
-                          {p.displayName?.slice(0, 2).toUpperCase()}
-                        </Text>
-                      )}
+                      <Text
+                        style={[
+                          styles.roleText,
+                          member.role === "owner"
+                            ? styles.ownerText
+                            : styles.adminText,
+                        ]}
+                      >
+                        {member.role === "owner" ? "Trưởng nhóm" : "Phó nhóm"}
+                      </Text>
                     </View>
-                  );
-                })}
-              </View>
-              <Text style={styles.profileName}>
-                {conversation.group?.name || "Nhóm chat"}
-              </Text>
-            </View>
-
-            {/* Members Section */}
-            <View>
-              <Pressable
-                style={styles.sectionHeader}
-                onPress={() => toggleSection("members")}
-              >
-                <Text style={styles.sectionHeaderText}>
-                  Thành viên ({conversation.participants.length})
-                </Text>
-                <View
-                  style={{
-                    transform: expandedSections.media
-                      ? [{ rotate: "180deg" }]
-                      : [],
-                  }}
-                >
-                  <ChevronDown size={18} color="#94a3b8" />
+                  )}
                 </View>
-              </Pressable>
-              {expandedSections.members && (
-                <View style={styles.sectionContent}>
-                  <TextInput
-                    style={styles.searchInput}
-                    placeholder="Tìm thành viên..."
-                    placeholderTextColor="#94a3b8"
-                    value={searchMember}
-                    onChangeText={setSearchMember}
+              </TouchableOpacity>
+            ))}
+          </Section>
+
+          {/* Media Section */}
+          <Section
+            title="Ảnh/Video"
+            isOpen={expandedSections.media}
+            onToggle={() => toggleSection("media")}
+          >
+            <View style={styles.mediaGrid}>
+              {mediaFiles.slice(0, 9).map((item, i) => (
+                <TouchableOpacity
+                  key={i}
+                  onPress={() => setSelectedImage(item.url)}
+                  activeOpacity={0.8}
+                  style={styles.mediaThumb}
+                >
+                  <Image
+                    source={{ uri: item.url }}
+                    style={styles.mediaImage}
+                    resizeMode="cover"
+                    onError={() => console.log("IMG FAIL:", item.url)} // ✅ debug
                   />
-                  {filteredMembers.length === 0 ? (
-                    <Text style={styles.emptyText}>
-                      Không có thành viên nào
-                    </Text>
-                  ) : (
-                    <>
-                      {filteredMembers.map((member) => (
-                        <View key={member._id} style={styles.memberItem}>
-                          <View
-                            style={[
-                              styles.memberAvatar,
-                              {
-                                backgroundColor: member.avatarUrl
-                                  ? undefined
-                                  : getAvatarColor(member.displayName),
-                              },
-                            ]}
-                          >
-                            {member.avatarUrl ? (
-                              <Image
-                                source={{ uri: member.avatarUrl }}
-                                style={{ width: "100%", height: "100%" }}
-                              />
-                            ) : (
-                              <Text
-                                style={{
-                                  color: "white",
-                                  fontWeight: "700",
-                                  fontSize: 12,
-                                }}
-                              >
-                                {member.displayName?.[0]?.toUpperCase()}
-                              </Text>
-                            )}
-                          </View>
-                          <Text style={styles.memberName} numberOfLines={1}>
-                            {member.displayName}
-                            {member._id === currentUserId && (
-                              <Text style={{ color: "#94a3b8", fontSize: 11 }}>
-                                {" "}
-                                (Bạn)
-                              </Text>
-                            )}
-                          </Text>
-                        </View>
-                      ))}
-                    </>
-                  )}
-                </View>
-              )}
+                </TouchableOpacity>
+              ))}
             </View>
+          </Section>
 
-            {/* Media Section */}
-            <View>
-              <Pressable
-                style={styles.sectionHeader}
-                onPress={() => toggleSection("media")}
+          {/* Group Settings */}
+          {isAdminOrOwner && (
+            <View style={styles.settingsArea}>
+              <Text style={styles.settingsHeader}>Cài đặt nhóm</Text>
+              <View style={styles.settingRow}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.settingLabel}>Chế độ phê duyệt</Text>
+                  <Text style={styles.settingSubLabel}>
+                    Duyệt thành viên mới vào nhóm
+                  </Text>
+                </View>
+                <Switch
+                  value={requireApproval}
+                  onValueChange={async (val) => {
+                    setRequireApproval(val); // Cập nhật UI ngay lập tức
+                    try {
+                      await onUpdateSettings?.({ requireApprovalToJoin: val });
+                    } catch (err) {
+                      setRequireApproval(!val); // Rollback nếu lỗi
+                      Alert.alert("Lỗi", "Không thể cập nhật cài đặt");
+                    }
+                  }}
+                  trackColor={{ false: "#1e293b", true: "#2563eb" }}
+                />
+              </View>
+            </View>
+          )}
+
+          {/* Danger Zone */}
+          <View style={styles.dangerZone}>
+            <TouchableOpacity style={styles.dangerBtn} onPress={onLeaveGroup}>
+              <LogOut size={18} color="#ef4444" />
+              <Text style={styles.dangerBtnText}>Rời khỏi nhóm</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.dangerBtn}
+              onPress={onDeleteConversation}
+            >
+              <Trash2 size={18} color="#ef4444" />
+              <Text style={styles.dangerBtnText}>Xóa lịch sử trò chuyện</Text>
+            </TouchableOpacity>
+            {isOwner && (
+              <TouchableOpacity
+                style={[styles.dangerBtn, styles.dissolveBtn]}
+                onPress={onDissolveGroup}
               >
-                <Text style={styles.sectionHeaderText}>Ảnh/Video</Text>
-                <View
-                  style={{
-                    transform: expandedSections.media
-                      ? [{ rotate: "180deg" }]
-                      : [],
+                <Trash2 size={18} color="#ef4444" />
+                <Text style={styles.dangerBtnText}>Giải tán nhóm</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </ScrollView>
+      </View>
+      {selectedImage && (
+        <Modal transparent animationType="fade">
+          <TouchableOpacity
+            style={styles.previewOverlay}
+            onPress={() => setSelectedImage(null)}
+            activeOpacity={1}
+          >
+            <Image
+              source={{ uri: selectedImage }}
+              style={styles.previewImage}
+              resizeMode="contain"
+            />
+          </TouchableOpacity>
+        </Modal>
+      )}
+      {selectedMember && (
+        <Modal transparent animationType="fade">
+          <TouchableOpacity
+            style={{
+              flex: 1,
+              backgroundColor: "rgba(0,0,0,0.5)",
+              justifyContent: "flex-end",
+            }}
+            onPress={() => setSelectedMember(null)}
+            activeOpacity={1}
+          >
+            <View
+              style={{
+                backgroundColor: "#1e293b",
+                padding: 16,
+                borderTopLeftRadius: 16,
+                borderTopRightRadius: 16,
+              }}
+            >
+              <Text
+                style={{
+                  color: "white",
+                  fontSize: 16,
+                  fontWeight: "600",
+                  marginBottom: 16,
+                }}
+              >
+                {selectedMember.displayName}
+              </Text>
+
+              {/* OWNER: thêm / gỡ admin */}
+              {isOwner && (
+                <TouchableOpacity
+                  style={styles.menuItem}
+                  onPress={() => {
+                    const newRole =
+                      selectedMember.role === "admin" ? "member" : "admin";
+                    // Chỉ gọi nếu khác với role hiện tại của member đó
+                    if (selectedMember.role !== newRole) {
+                      onUpdateMemberRole?.(selectedMember._id, newRole);
+                    }
+                    setSelectedMember(null);
                   }}
                 >
-                  <ChevronDown size={18} color="#94a3b8" />
-                </View>
-              </Pressable>
-              {expandedSections.media && (
-                <View style={styles.sectionContent}>
-                  {mediaFiles.length === 0 ? (
-                    <Text style={styles.emptyText}>
-                      Chưa có Ảnh/Video được chia sẻ
-                    </Text>
-                  ) : (
-                    <>
-                      <View style={styles.mediaGrid}>
-                        {mediaDisplay.map((media, idx) => (
-                          <View key={idx} style={styles.mediaItem}>
-                            {media.type === "image" && (
-                              <Image
-                                source={{ uri: media.url }}
-                                style={{ width: "100%", height: "100%" }}
-                                resizeMode="cover"
-                              />
-                            )}
-                          </View>
-                        ))}
-                      </View>
-                      {mediaFiles.length > 6 && (
-                        <TouchableOpacity
-                          style={styles.viewAllBtn}
-                          onPress={() => {}}
-                        >
-                          <Text style={styles.viewAllBtnText}>Xem tất cả</Text>
-                        </TouchableOpacity>
-                      )}
-                    </>
-                  )}
-                </View>
+                  <Text style={styles.menuText}>
+                    {selectedMember.role === "admin"
+                      ? "Gỡ quyền phó nhóm"
+                      : "Thêm làm phó nhóm"}
+                  </Text>
+                </TouchableOpacity>
               )}
-            </View>
 
-            {/* Files Section */}
-            <View>
-              <Pressable
-                style={styles.sectionHeader}
-                onPress={() => toggleSection("files")}
-              >
-                <Text style={styles.sectionHeaderText}>File</Text>
-                <View
-                  style={{
-                    transform: expandedSections.media
-                      ? [{ rotate: "180deg" }]
-                      : [],
+              {/* ADMIN hoặc OWNER: xóa member */}
+              {(isOwner ||
+                (currentParticipant?.role === "admin" &&
+                  selectedMember.role === "member")) && (
+                <TouchableOpacity
+                  style={styles.menuItem}
+                  onPress={() => {
+                    setSelectedMember(null);
+                    Alert.alert(
+                      "Xác nhận",
+                      `Xóa ${selectedMember.displayName} khỏi nhóm?`,
+                      [
+                        { text: "Hủy", style: "cancel" },
+                        {
+                          text: "Xóa",
+                          style: "destructive",
+                          onPress: () => onRemoveMember?.(selectedMember._id),
+                        },
+                      ],
+                    );
                   }}
                 >
-                  <ChevronDown size={18} color="#94a3b8" />
-                </View>
-              </Pressable>
-              {expandedSections.files && (
-                <View style={styles.sectionContent}>
-                  {fileList.length === 0 ? (
-                    <Text style={styles.emptyText}>
-                      Chưa có File được chia sẻ
-                    </Text>
-                  ) : (
-                    <>
-                      {fileDisplay.map((file, idx) => (
-                        <View key={idx} style={styles.fileItem}>
-                          <File size={14} color="#8b5cf6" />
-                          <Text style={styles.fileText} numberOfLines={1}>
-                            {file.name}
-                          </Text>
-                        </View>
-                      ))}
-                      {fileList.length > 3 && (
-                        <TouchableOpacity
-                          style={styles.viewAllBtn}
-                          onPress={() => {}}
-                        >
-                          <Text style={styles.viewAllBtnText}>Xem tất cả</Text>
-                        </TouchableOpacity>
-                      )}
-                    </>
-                  )}
-                </View>
+                  <Text style={[styles.menuText, { color: "#ef4444" }]}>
+                    Xóa khỏi nhóm
+                  </Text>
+                </TouchableOpacity>
               )}
-            </View>
 
-            {/* Links Section */}
-            <View>
-              <Pressable
-                style={styles.sectionHeader}
-                onPress={() => toggleSection("links")}
+              {/* Cancel */}
+              <TouchableOpacity
+                style={styles.menuItem}
+                onPress={() => setSelectedMember(null)}
               >
-                <Text style={styles.sectionHeaderText}>Link</Text>
-                <View
-                  style={{
-                    transform: expandedSections.media
-                      ? [{ rotate: "180deg" }]
-                      : [],
-                  }}
-                >
-                  <ChevronDown size={18} color="#94a3b8" />
-                </View>
-              </Pressable>
-              {expandedSections.links && (
-                <View style={styles.sectionContent}>
-                  {links.length === 0 ? (
-                    <Text style={styles.emptyText}>
-                      Chưa có Link được chia sẻ
-                    </Text>
-                  ) : (
-                    <>
-                      {linkDisplay.map((link, idx) => (
-                        <View key={idx} style={styles.linkItem}>
-                          <LinkIcon size={14} color="#f59e0b" />
-                          <Text style={styles.linkText} numberOfLines={1}>
-                            {link.preview}
-                          </Text>
-                        </View>
-                      ))}
-                      {links.length > 3 && (
-                        <TouchableOpacity
-                          style={styles.viewAllBtn}
-                          onPress={() => {}}
-                        >
-                          <Text style={styles.viewAllBtnText}>Xem tất cả</Text>
-                        </TouchableOpacity>
-                      )}
-                    </>
-                  )}
-                </View>
-              )}
+                <Text style={[styles.menuText, { color: "#94a3b8" }]}>Hủy</Text>
+              </TouchableOpacity>
             </View>
-          </ScrollView>
-        </Pressable>
-      </Pressable>
+          </TouchableOpacity>
+        </Modal>
+      )}
+      <EditGroupMobileModal
+        visible={showEditModal}
+        conversation={conversation}
+        onClose={() => setShowEditModal(false)}
+      />
     </Modal>
   );
 }
+
+const styles = StyleSheet.create({
+  menuItem: {
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255,255,255,0.05)",
+  },
+
+  menuText: {
+    color: "white",
+    fontSize: 15,
+  },
+  mediaGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+
+  mediaThumb: {
+    width: (width - 48) / 3,
+    height: (width - 48) / 3,
+    borderRadius: 12,
+    overflow: "hidden", // ✅ quan trọng
+    backgroundColor: "#1e293b",
+  },
+
+  mediaImage: {
+    width: "100%",
+    height: "100%",
+  },
+
+  previewOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.9)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+
+  previewImage: {
+    width: "90%",
+    height: "70%",
+  },
+  container: { flex: 1 },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingBottom: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255,255,255,0.05)",
+  },
+  headerTitle: { color: "white", fontSize: 18, fontWeight: "700" },
+  headerBtn: { padding: 4 },
+  profileSection: {
+    alignItems: "center",
+    paddingVertical: 30,
+    backgroundColor: "rgba(255,255,255,0.02)",
+  },
+  bigAvatarContainer: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    borderWidth: 3,
+    borderColor: "rgba(59,130,246,0.3)",
+    overflow: "hidden",
+    marginBottom: 15,
+  },
+  bigAvatar: { width: "100%", height: "100%" },
+  avatarPlaceholder: {
+    backgroundColor: "#3b82f6",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  avatarTxtLarge: { color: "white", fontSize: 32, fontWeight: "800" },
+  profileName: {
+    color: "white",
+    fontSize: 22,
+    fontWeight: "800",
+    textAlign: "center",
+    paddingHorizontal: 20,
+  },
+  quickActions: {
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: 30,
+    marginTop: 25,
+  },
+  actionBtn: { alignItems: "center", gap: 8 },
+  actionIconCircle: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: "rgba(148,163,184,0.1)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  actionLabel: { color: "#94a3b8", fontSize: 11 },
+  sectionWrap: {
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255,255,255,0.05)",
+  },
+  sectionHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    padding: 18,
+    alignItems: "center",
+  },
+  sectionTitle: { color: "#cbd5e1", fontSize: 16, fontWeight: "600" },
+  sectionContent: { paddingHorizontal: 16, paddingBottom: 20 },
+  searchWrapper: { position: "relative", marginBottom: 15 },
+  searchIcon: { position: "absolute", left: 12, top: 14, zIndex: 1 },
+  searchInput: {
+    backgroundColor: "#1e293b",
+    borderRadius: 10,
+    padding: 12,
+    paddingLeft: 40,
+    color: "white",
+    fontSize: 15,
+  },
+  memberItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 16,
+    gap: 14,
+  },
+  miniAvatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    justifyContent: "center",
+    alignItems: "center",
+    overflow: "hidden",
+  },
+  miniAvatarImg: { width: "100%", height: "100%" },
+  avatarTxt: { color: "white", fontWeight: "bold", fontSize: 16 },
+  memberInfo: { flex: 1 },
+  memberName: { color: "#f1f5f9", fontSize: 15, fontWeight: "600" },
+  meTag: { color: "#64748b", fontSize: 13, fontWeight: "400" },
+  roleBadge: {
+    alignSelf: "flex-start",
+    marginTop: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+    borderWidth: 1,
+  },
+  ownerBadge: {
+    backgroundColor: "rgba(234, 179, 8, 0.12)",
+    borderColor: "rgba(234, 179, 8, 0.4)",
+  },
+  adminBadge: {
+    backgroundColor: "rgba(148, 163, 184, 0.12)",
+    borderColor: "rgba(148, 163, 184, 0.4)",
+  },
+  roleText: { fontSize: 10, fontWeight: "700" },
+  ownerText: { color: "#facc15" },
+  adminText: { color: "#94a3b8" },
+  mediaGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  mediaThumb: { width: (width - 48) / 3, aspectRatio: 1, borderRadius: 12 },
+  settingsArea: {
+    padding: 18,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255,255,255,0.05)",
+  },
+  settingsHeader: {
+    color: "white",
+    fontSize: 16,
+    fontWeight: "600",
+    marginBottom: 15,
+  },
+  settingRow: { flexDirection: "row", alignItems: "center" },
+  settingLabel: { color: "#f1f5f9", fontSize: 14 },
+  settingSubLabel: { color: "#64748b", fontSize: 11, marginTop: 2 },
+  requestCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(15,23,42,0.6)",
+    padding: 12,
+    borderRadius: 12,
+    marginBottom: 10,
+  },
+  requestInfo: { flex: 1 },
+  requestName: { color: "white", fontSize: 14, fontWeight: "600" },
+  requestSub: { color: "#64748b", fontSize: 11 },
+  requestActions: { flexDirection: "row", gap: 12 },
+  dangerZone: { padding: 16, gap: 12 },
+  dangerBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+    padding: 14,
+    borderRadius: 12,
+    backgroundColor: "rgba(248,113,113,0.08)",
+  },
+  dangerBtnText: { color: "#f87171", fontWeight: "600", fontSize: 14 },
+  dissolveBtn: { backgroundColor: "rgba(239,68,68,0.15)", marginTop: 5 },
+});
