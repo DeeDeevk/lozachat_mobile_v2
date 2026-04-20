@@ -543,6 +543,7 @@ export default function ChatDetailScreen() {
     reviewJoinRequest,
     fetchJoinRequests,
     joinRequests,
+    fetchConversations,
   } = useChatStore();
 
   const { user, userProfile } = useAuthStore();
@@ -3413,6 +3414,21 @@ export default function ChatDetailScreen() {
             } catch (error) {
               console.error("Lỗi khi cập nhật role:", error);
               alert("Không thể cập nhật quyền thành viên");
+            }
+          }}
+          onRemoveMember={async (targetUserId) => {
+            if (!activeConv._id) return;
+            try {
+              await chatService.removeMember(activeConv._id, targetUserId);
+              // Sau khi xóa thành công, fetch lại danh sách để cập nhật UI
+              await fetchConversations();
+              console.log("Đã xóa thành viên thành công");
+            } catch (error: any) {
+              console.error("Lỗi khi xóa thành viên:", error);
+              Alert.alert(
+                "Lỗi",
+                error?.response?.data?.message || "Không thể xóa thành viên",
+              );
             }
           }}
         />
