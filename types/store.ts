@@ -18,8 +18,6 @@ export interface ChatState {
   reset: () => void;
   setActiveConversation: (id: string | null) => void;
   fetchConversations: () => Promise<void>;
-  addTypingUser: (userId: string, conversationId: string) => void;
-  removeTypingUser: (userId: string, conversationId: string) => void;
   fetchMessages: (conversationId?: string) => Promise<void>;
   updateLastRead: (
     userId: string,
@@ -62,6 +60,9 @@ export interface ChatState {
     conversationId: string,
     action: "accepted" | "declined",
   ) => Promise<void>;
+  deleteConversationForMe: (conversationId: string) => Promise<void>;
+  leaveGroup: (conversationId: string) => Promise<void>;
+  dissolveGroup: (conversationId: string) => Promise<void>;
 }
 
 export interface FriendUpdateEvent {
