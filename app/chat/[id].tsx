@@ -550,6 +550,11 @@ export default function ChatDetailScreen() {
   // LozaBot
   const [showLozaBotSuggestions, setShowLozaBotSuggestions] = useState(false);
 
+  const conversationId =
+    typeof id === "string" ? id : Array.isArray(id) ? String(id[0]) : undefined;
+
+  if (!conversationId) return null;
+
   const {
     messages,
     fetchMessages,
@@ -576,13 +581,31 @@ export default function ChatDetailScreen() {
   const { user, userProfile } = useAuthStore();
   const { socket, onlineUsers } = useSocketStore();
 
-  const selectedByConversation = useChatThemeStore(
-    (s) => s.selectedByConversation,
+  const selectedThemeId = useChatThemeStore(
+    (s) => s.selectedByConversation[conversationId],
   );
+  const theme = getChatThemeById(selectedThemeId);
+
   const setThemeForConversation = useChatThemeStore(
     (s) => s.setThemeForConversation,
   );
+  const dynamicStyles = {
+    mainContainer: {
+      flex: 1,
+      backgroundColor: theme.appBackgroundColor,
+    },
 
+    header: {
+      flexDirection: "row",
+      alignItems: "center",
+      padding: 15,
+      backgroundColor: theme.messageAreaOverlay,
+    },
+
+    myBubble: {
+      backgroundColor: theme.mineBubbleColor,
+    },
+  };
   // ─── Derived data ───────────────────────────────────────────────────────────
   const activeConv = useMemo(
     () => conversations.find((c) => c._id === id),
@@ -595,12 +618,9 @@ export default function ChatDetailScreen() {
     return me?.role === "owner" || me?.role === "admin";
   }, [activeConv, user?.userId]);
 
-  const conversationId =
-    typeof id === "string" ? id : Array.isArray(id) ? id[0] : undefined;
-
   const activeChatTheme = useMemo(
-    () => getChatThemeById(selectedByConversation?.[conversationId ?? ""]),
-    [conversationId, selectedByConversation],
+    () => getChatThemeById(selectedThemeId),
+    [selectedThemeId],
   );
 
   const currentMessages = useMemo(() => {
@@ -777,7 +797,7 @@ export default function ChatDetailScreen() {
   useEffect(() => {
     if (!id || !activeConv?.chatThemeId) return;
     setThemeForConversation(id as string, activeConv.chatThemeId);
-  }, [activeConv?.chatThemeId, id]);
+  }, [activeConv?.chatThemeId, id, setThemeForConversation]);
 
   useEffect(() => {
     if (!id || !socket) return;
@@ -1712,10 +1732,9 @@ export default function ChatDetailScreen() {
         ? groupSeenMap.get(item._id?.toString()) || []
         : [];
 
-      const senderParticipant =
-        !isMine && isGroup
-          ? activeConv?.participants.find((p) => p._id === item.senderId)
-          : undefined;
+      const senderParticipant = !isMine
+        ? activeConv?.participants.find((p) => p._id === item.senderId)
+        : undefined;
 
       return (
         <View style={styles.msgWrapper}>
@@ -1741,7 +1760,7 @@ export default function ChatDetailScreen() {
             )}
 
             {/* Reaction button left (for others) */}
-            {!isMine && !item.isRecalled && (
+            {isMine && !item.isRecalled && (
               <TouchableOpacity
                 onPress={() => setReactionMenuMessage(item)}
                 style={styles.reactionBtn}
@@ -1779,10 +1798,10 @@ export default function ChatDetailScreen() {
             </TouchableOpacity>
 
             {/* Reaction button right (for mine) */}
-            {isMine && !item.isRecalled && (
+            {!isMine && !item.isRecalled && (
               <TouchableOpacity
                 onPress={() => setReactionMenuMessage(item)}
-                style={styles.reactionBtn}
+                style={[styles.reactionBtn, { marginRight: 6 }]}
               >
                 <SmilePlus size={16} color="#64748b" />
               </TouchableOpacity>
@@ -1794,12 +1813,10 @@ export default function ChatDetailScreen() {
             <View
               style={[
                 styles.reactionsRow,
-                isMine
-                  ? { justifyContent: "flex-end", paddingRight: 4 }
-                  : {
-                      justifyContent: "flex-start",
-                      paddingLeft: isGroup ? 36 : 4,
-                    },
+                {
+                  alignSelf: isMine ? "flex-end" : "flex-start",
+                  flexDirection: "row",
+                },
               ]}
             >
               {(
@@ -1897,8 +1914,11 @@ export default function ChatDetailScreen() {
       )?.emoji
     : undefined;
 
+  const groupAvatars =
+    activeConv?.participants?.map((p) => p.avatarUrl).filter(Boolean) || [];
+
   return (
-    <View style={[styles.mainContainer, { backgroundColor: "#060d1f" }]}>
+    <View style={[styles.mainContainer, dynamicStyles.mainContainer]}>
       <SafeAreaView style={{ flex: 1 }}>
         {/* Header */}
         <View style={styles.header}>
@@ -1909,48 +1929,101 @@ export default function ChatDetailScreen() {
             <ChevronLeft color="white" size={28} />
           </TouchableOpacity>
           <View style={styles.headerCenter}>
-            <Text style={styles.headerTitle} numberOfLines={1}>
-              {activeConv?.group?.name ||
-                otherUser?.displayName ||
-                "Đang tải..."}
-            </Text>
-            {activeConv?.strangerStatus === "accepted" &&
-              activeConv?.isStranger && (
-                <View style={styles.strangerBadge}>
-                  <UserIcon size={10} color="#94a3b8" />
-                  <Text style={styles.strangerBadgeText}>Người lạ</Text>
+            <View style={{ flexDirection: "row", alignItems: "center" }}>
+              {/* ================= GROUP AVATAR ================= */}
+              {activeConv?.group ? (
+                <View style={styles.triangleAvatar}>
+                  {groupAvatars[0] && (
+                    <Image
+                      source={{ uri: groupAvatars[0] }}
+                      style={styles.avtTop}
+                    />
+                  )}
+                  {groupAvatars[1] && (
+                    <Image
+                      source={{ uri: groupAvatars[1] }}
+                      style={styles.avtLeft}
+                    />
+                  )}
+                  {groupAvatars[2] && (
+                    <Image
+                      source={{ uri: groupAvatars[2] }}
+                      style={styles.avtRight}
+                    />
+                  )}
+
+                  {groupAvatars.length > 3 && (
+                    <View style={styles.moreBadge}>
+                      <Text style={{ color: "#fff", fontSize: 12 }}>
+                        +{groupAvatars.length - 3}
+                      </Text>
+                    </View>
+                  )}
                 </View>
+              ) : (
+                /* ================= ONE CHAT AVATAR ================= */
+                otherUser?.avatarUrl && (
+                  <Image
+                    source={{ uri: otherUser.avatarUrl }}
+                    style={{
+                      width: 40,
+                      height: 40,
+                      borderRadius: 20,
+                      marginRight: 10,
+                    }}
+                  />
+                )
               )}
-            {!activeConv?.group && activeConv && (
-              <View
-                style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
-              >
-                <View
-                  style={{
-                    width: 6,
-                    height: 6,
-                    borderRadius: 3,
-                    backgroundColor: onlineUsers.some(
-                      (uid: string) => String(uid) === String(otherUser?._id),
-                    )
-                      ? "#10b981"
-                      : "#64748b",
-                  }}
-                />
-                <Text style={styles.headerSubtitle}>
-                  {onlineUsers.some(
-                    (uid: string) => String(uid) === String(otherUser?._id),
-                  )
-                    ? "Đang hoạt động"
-                    : "Ngoại tuyến"}
+
+              {/* ================= TEXT ================= */}
+              <View style={{ flexDirection: "column" }}>
+                <Text style={styles.headerTitle} numberOfLines={1}>
+                  {activeConv?.group?.name ||
+                    otherUser?.displayName ||
+                    "Đang tải..."}
                 </Text>
+
+                {/* STATUS ONLY 1-1 */}
+                {!activeConv?.group && activeConv && (
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 6,
+                    }}
+                  >
+                    <View
+                      style={{
+                        width: 6,
+                        height: 6,
+                        borderRadius: 3,
+                        backgroundColor: onlineUsers.some(
+                          (uid: string) =>
+                            String(uid) === String(otherUser?._id),
+                        )
+                          ? "#10b981"
+                          : "#64748b",
+                      }}
+                    />
+
+                    <Text style={styles.headerSubtitle}>
+                      {onlineUsers.some(
+                        (uid: string) => String(uid) === String(otherUser?._id),
+                      )
+                        ? "Đang hoạt động"
+                        : "Ngoại tuyến"}
+                    </Text>
+                  </View>
+                )}
+
+                {/* GROUP MEMBERS */}
+                {activeConv?.group && (
+                  <Text style={styles.headerSubtitle}>
+                    {activeConv.participants.length} thành viên
+                  </Text>
+                )}
               </View>
-            )}
-            {activeConv?.group && (
-              <Text style={styles.headerSubtitle}>
-                {activeConv.participants.length} thành viên
-              </Text>
-            )}
+            </View>
           </View>
           <View style={styles.headerActions}>
             {activeConv?.group && (

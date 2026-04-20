@@ -761,4 +761,51 @@ export const styles = StyleSheet.create({
     height: 36,
     borderRadius: 18,
   },
+  bubbleWrapper: {
+    maxWidth: "75%",
+  },
+  triangleAvatar: {
+    width: 44,
+    height: 44,
+    position: "relative",
+  },
+
+  avtTop: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    position: "absolute",
+    top: 0,
+    left: 11,
+  },
+
+  avtLeft: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+  },
+
+  avtRight: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    position: "absolute",
+    bottom: 0,
+    right: 0,
+  },
+
+  moreBadge: {
+    position: "absolute",
+    bottom: 0,
+    right: 0,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: "#64748b",
+    justifyContent: "center",
+    alignItems: "center",
+  },
 });

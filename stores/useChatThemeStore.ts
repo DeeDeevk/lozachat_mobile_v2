@@ -24,7 +24,7 @@ export const CHAT_THEME_OPTIONS: ChatThemeOption[] = [
     id: "aurora",
     name: "Aurora",
     mode: "gradient",
-    appBackgroundColors: ["#041226", "#0b1f3c"],
+    appBackgroundColor: "#0f172a",
     messageAreaOverlay: "rgba(6,15,35,0.3)",
     mineBubbleColors: ["#2563eb", "#1d4ed8"],
   },
@@ -32,8 +32,8 @@ export const CHAT_THEME_OPTIONS: ChatThemeOption[] = [
     id: "sunset",
     name: "Sunset",
     mode: "gradient",
-    appBackgroundColors: ["#1f1424", "#41264f", "#1c1f35"],
-    messageAreaOverlay: "rgba(34,16,40,0.28)",
+    appBackgroundColor: "#e9be624f",
+    messageAreaOverlay: "rgba(117, 85, 128, 0.28)",
     mineBubbleColors: ["#f97316", "#ec4899"],
   },
   {
@@ -95,12 +95,16 @@ export const useChatThemeStore = create<ChatThemeState>()(
       selectedByConversation: {},
 
       setThemeForConversation: (conversationId, themeId) =>
-        set((state) => ({
-          selectedByConversation: {
-            ...state.selectedByConversation,
-            [conversationId]: themeId,
-          },
-        })),
+        set((state) => {
+          const newState = {
+            selectedByConversation: {
+              ...state.selectedByConversation,
+              [conversationId]: themeId,
+            },
+          };
+
+          return newState;
+        }),
 
       clearThemes: () => set({ selectedByConversation: {} }),
     }),

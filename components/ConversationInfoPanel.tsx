@@ -1,17 +1,17 @@
-import React, { useMemo, useState } from "react";
-import {
-  View,
-  Text,
-  ScrollView,
-  Modal,
-  Pressable,
-  Image,
-  StyleSheet,
-  TouchableOpacity,
-} from "react-native";
-import { ChevronDown, File, Link as LinkIcon, X } from "lucide-react-native";
 import type { Conversation, Message } from "@/types/chat";
 import { decodeChatPayload } from "@/utils/chatMessageCodec";
+import { ChevronDown, File, Link as LinkIcon, X } from "lucide-react-native";
+import React, { useMemo, useState } from "react";
+import {
+  Image,
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
 
 interface ConversationInfoPanelProps {
   visible: boolean;
@@ -300,10 +300,6 @@ export default function ConversationInfoPanel({
     }));
   };
 
-  if (conversation.type !== "direct") {
-    return null;
-  }
-
   const mediaDisplay = mediaFiles.slice(0, 6);
   const fileDisplay = fileList.slice(0, 3);
   const linkDisplay = links.slice(0, 3);
@@ -326,16 +322,15 @@ export default function ConversationInfoPanel({
             {/* Profile Section */}
             <View style={styles.profileSection}>
               <View style={styles.avatar}>
-                {!otherUser?.avatarUrl && (
+                {otherUser?.avatarUrl ? (
+                  <Image
+                    source={{ uri: otherUser.avatarUrl }}
+                    style={{ width: 80, height: 80, borderRadius: 40 }}
+                  />
+                ) : (
                   <Text style={styles.avatarText}>
                     {otherUser?.displayName?.[0]?.toUpperCase()}
                   </Text>
-                )}
-                {otherUser?.avatarUrl && (
-                  <Image
-                    source={{ uri: otherUser.avatarUrl }}
-                    style={{ width: "100%", height: "100%" }}
-                  />
                 )}
               </View>
               <Text style={styles.profileName}>
