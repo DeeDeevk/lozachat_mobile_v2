@@ -1,9 +1,18 @@
+import ConversationInfoPanel from "@/components/ConversationInfoPanel";
+import GroupConversationInfoPanel from "@/components/GroupConversationInfoPanel";
+import { lozaBotService } from "@/services/lozaBotService";
 import { useAuthStore } from "@/stores/useAuthStore";
 import { useChatStore } from "@/stores/useChatStore";
+import {
+  CHAT_THEME_OPTIONS,
+  getChatThemeById,
+  useChatThemeStore,
+} from "@/stores/useChatThemeStore";
 import { useSocketStore } from "@/stores/useSocketStore";
 import type {
   ChatStructuredPayload,
   Message,
+  MessageReaction,
   PollOption,
   PollVote,
 } from "@/types/chat";
@@ -26,26 +35,27 @@ import {
   Copy,
   FileUp,
   Image as ImageIcon,
+  Info,
+  Key,
   Mic,
+  Palette,
   Pause,
+  Pencil,
+  Phone,
+  Pin,
+  PinOff,
   Play,
   Reply,
   RotateCcw,
   Send,
+  SmilePlus,
   Sticker,
   Trash2,
   User as UserIcon,
-  X,
-<<<<<<< HEAD
-  Pin
-=======
-  Info,
-  Phone,
+  UserPlus,
   Video,
->>>>>>> 475f6139a01736b53c575a83fe85cb867c603184
+  X,
 } from "lucide-react-native";
-import ConversationInfoPanel from "@/components/ConversationInfoPanel";
-import GroupConversationInfoPanel from "@/components/GroupConversationInfoPanel";
 import React, {
   useCallback,
   useEffect,
@@ -70,9 +80,12 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { styles } from "../style/chatstyle";
+import { chatService } from "@/services/chatService";
+import { useFriendStore } from "@/stores/useFriendStore";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-type PopupType = "media" | "sticker" | "audio" | "poll" | null;
+type PopupType = "media" | "sticker" | "audio" | "poll" | "theme" | null;
 
 interface ContextMenuState {
   message: Message;
@@ -101,7 +114,17 @@ const CHAT_STICKER_LIST = [
   "https://sdl-stickershop.line.naver.jp/stickershop/v1/product/1414804/LINEStorePC/main.png;compress=true?__=20161019",
   "https://sdl-stickershop.line.naver.jp/stickershop/v1/product/1414799/IOS/main_animation.png?__=20161019",
 ];
+
+const REACTION_OPTIONS = ["❤️", "👍", "😂", "😮", "😢", "🙏"];
 const VOTE_PAGE_SIZE = 5;
+const LOZA_BOT_NAME = "LozaBot";
+const LOZA_BOT_COMMAND_REGEX = /^@(LozaBot|lozabot)\s+(.+)$/i;
+const LOZA_BOT_MENTION_REGEX = /^@(LozaBot|lozabot)\b/i;
+const LOZA_BOT_SUGGESTIONS = [
+  "Tóm tắt cuộc trò chuyện từ tin nhắn cuối cùng",
+  "Liệt kê các việc cần làm theo mức ưu tiên",
+  "Soạn câu trả lời ngắn gọn và lịch sự",
+];
 
 function createPollId() {
   return `poll_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -118,7 +141,6 @@ function getAudioUploadMeta(uri: string) {
     webm: "audio/webm",
     mp3: "audio/mpeg",
   };
-
   return {
     name: `recording-${Date.now()}.${ext}`,
     type: mimeByExt[ext] || "audio/mp4",
@@ -130,14 +152,310 @@ function getSenderName(
   myId: string | undefined,
   participants: Array<{ _id: string; displayName: string }> = [],
 ) {
-  if (message.senderId === myId) return "Bạn";
+  // Tìm trong participants luôn, không phân biệt mình hay người khác
   return (
     participants.find((p) => p._id === message.senderId)?.displayName ||
     "Người dùng"
   );
 }
 
-// ─── Component ────────────────────────────────────────────────────────────────
+function formatCallDuration(totalSeconds: number) {
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (hours > 0) {
+    return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+  }
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
+function formatMessageDateTime(dateString: string) {
+  return new Date(dateString).toLocaleString("vi-VN", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function getAvatarColor(name: string) {
+  const colors = [
+    "#3b82f6",
+    "#10b981",
+    "#8b5cf6",
+    "#f59e0b",
+    "#ef4444",
+    "#06b6d4",
+    "#ec4899",
+  ];
+  let hash = 0;
+  for (let i = 0; i < name.length; i++)
+    hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  return colors[Math.abs(hash) % colors.length];
+}
+
+// ─── Sub-components ───────────────────────────────────────────────────────────
+
+interface SenderAvatarProps {
+  participant?: {
+    _id: string;
+    displayName: string;
+    avatarUrl?: string | null;
+    role?: "owner" | "admin" | "member";
+  };
+  size?: number;
+}
+
+function SenderAvatar({ participant, size = 28 }: SenderAvatarProps) {
+  const name = participant?.displayName || "?";
+  const color = getAvatarColor(name);
+  return (
+    <View
+      style={{
+        width: size,
+        height: size,
+        borderRadius: size / 2,
+        backgroundColor: participant?.avatarUrl ? undefined : color,
+        alignItems: "center",
+        justifyContent: "center",
+        overflow: "hidden",
+        alignSelf: "flex-end",
+        marginBottom: 2,
+        flexShrink: 0,
+      }}
+    >
+      {participant?.avatarUrl ? (
+        <Image
+          source={{ uri: participant.avatarUrl }}
+          style={{ width: size, height: size, borderRadius: size / 2 }}
+        />
+      ) : (
+        <Text
+          style={{ color: "white", fontWeight: "700", fontSize: size * 0.38 }}
+        >
+          {name.slice(0, 2).toUpperCase()}
+        </Text>
+      )}
+      {participant?.role === "owner" && (
+        <View style={styles.roleIcon}>
+          <Key size={8} color="yellow" />
+        </View>
+      )}
+      {participant?.role === "admin" && (
+        <View style={styles.roleIcon}>
+          <Key size={8} color="white" />
+        </View>
+      )}
+    </View>
+  );
+}
+
+interface GroupSeenAvatarsProps {
+  seenParticipants: Array<{
+    _id: string;
+    displayName: string;
+    avatarUrl?: string | null;
+  }>;
+}
+
+function GroupSeenAvatars({ seenParticipants }: GroupSeenAvatarsProps) {
+  if (seenParticipants.length === 0) return null;
+  const MAX_SHOW = 4;
+  const shown = seenParticipants.slice(0, MAX_SHOW);
+  const overflow = seenParticipants.length - MAX_SHOW;
+  return (
+    <View
+      style={{
+        flexDirection: "row",
+        justifyContent: "flex-end",
+        marginTop: 2,
+        paddingRight: 4,
+      }}
+    >
+      {shown.map((p, i) => (
+        <View
+          key={p._id}
+          style={{
+            width: 16,
+            height: 16,
+            borderRadius: 8,
+            borderWidth: 1.5,
+            borderColor: "#0f172a",
+            marginLeft: i === 0 ? 0 : -5,
+            backgroundColor: "#334155",
+            overflow: "hidden",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          {p.avatarUrl ? (
+            <Image
+              source={{ uri: p.avatarUrl }}
+              style={{ width: 16, height: 16 }}
+            />
+          ) : (
+            <Text style={{ fontSize: 7, color: "#cbd5e1", fontWeight: "700" }}>
+              {p.displayName?.[0]?.toUpperCase()}
+            </Text>
+          )}
+        </View>
+      ))}
+      {overflow > 0 && (
+        <View
+          style={{
+            marginLeft: -5,
+            width: 16,
+            height: 16,
+            borderRadius: 8,
+            borderWidth: 1.5,
+            borderColor: "#0f172a",
+            backgroundColor: "#475569",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <Text style={{ fontSize: 7, color: "#f1f5f9", fontWeight: "700" }}>
+            {overflow}+
+          </Text>
+        </View>
+      )}
+    </View>
+  );
+}
+
+// ─── AddMemberModal ───────────────────────────────────────────────────────────
+interface AddMemberModalProps {
+  visible: boolean;
+  onClose: () => void;
+  conversationId: string;
+  currentParticipantIds: string[];
+  onAdd: (targetUserId: string) => Promise<void>;
+}
+
+function AddMemberModal({
+  visible,
+  onClose,
+  currentParticipantIds,
+  onAdd,
+}: AddMemberModalProps) {
+  const [search, setSearch] = useState("");
+  const [adding, setAdding] = useState<string | null>(null);
+
+  // Lấy danh sách bạn bè chính thức từ Store
+  const { friends, getFriends } = useFriendStore();
+
+  useEffect(() => {
+    if (visible) getFriends();
+  }, [visible, getFriends]);
+
+  // Lọc: Bạn bè + Chưa có trong nhóm + Theo tên search
+  const eligible = useMemo(() => {
+    return friends.filter(
+      (f) =>
+        !currentParticipantIds.includes(f._id) &&
+        f.displayName.toLowerCase().includes(search.toLowerCase()),
+    );
+  }, [friends, currentParticipantIds, search]);
+
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="slide"
+      onRequestClose={onClose}
+    >
+      <View style={styles.modalOverlay}>
+        {/* Lớp nền bấm để đóng */}
+        <TouchableOpacity
+          style={StyleSheet.absoluteFill}
+          activeOpacity={1}
+          onPress={onClose}
+        />
+
+        <View style={[styles.popupSheet, { height: "70%", width: "92%" }]}>
+          <View
+            style={{
+              flexDirection: "row",
+              justifyContent: "space-between",
+              marginBottom: 14,
+            }}
+          >
+            <Text style={styles.popupTitle}>Thêm thành viên</Text>
+            <TouchableOpacity onPress={onClose}>
+              <X size={20} color="#94a3b8" />
+            </TouchableOpacity>
+          </View>
+
+          <TextInput
+            style={styles.pollInput}
+            placeholder="Tìm bạn bè..."
+            placeholderTextColor="#64748b"
+            value={search}
+            onChangeText={setSearch}
+          />
+
+          <FlatList
+            data={eligible}
+            keyExtractor={(item) => item._id}
+            showsVerticalScrollIndicator={true}
+            contentContainerStyle={{ paddingBottom: 20 }}
+            ListEmptyComponent={
+              <Text
+                style={[
+                  styles.emptyText,
+                  { textAlign: "center", marginTop: 20 },
+                ]}
+              >
+                Không tìm thấy bạn bè nào hợp lệ
+              </Text>
+            }
+            renderItem={({ item: p }) => (
+              <View style={styles.popupAction}>
+                <SenderAvatar participant={p as any} size={32} />
+                <Text
+                  style={[styles.popupActionText, { flex: 1, marginLeft: 10 }]}
+                >
+                  {p.displayName}
+                </Text>
+                <TouchableOpacity
+                  disabled={adding === p._id}
+                  onPress={async () => {
+                    setAdding(p._id);
+                    await onAdd(p._id);
+                    setAdding(null);
+                  }}
+                  style={{
+                    backgroundColor: adding === p._id ? "#334155" : "#2563eb",
+                    borderRadius: 8,
+                    paddingHorizontal: 12,
+                    paddingVertical: 6,
+                  }}
+                >
+                  {adding === p._id ? (
+                    <ActivityIndicator size="small" color="white" />
+                  ) : (
+                    <Text
+                      style={{
+                        color: "white",
+                        fontWeight: "600",
+                        fontSize: 12,
+                      }}
+                    >
+                      Thêm
+                    </Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            )}
+          />
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+// ─── Main Component ───────────────────────────────────────────────────────────
 export default function ChatDetailScreen() {
   const { id } = useLocalSearchParams();
   const router = useRouter();
@@ -160,6 +478,22 @@ export default function ChatDetailScreen() {
     null,
   );
 
+  // Edit message
+  const [editingMessage, setEditingMessage] = useState<Message | null>(null);
+  const [editInput, setEditInput] = useState("");
+
+  // Reaction
+  const [reactionMenuMessage, setReactionMenuMessage] =
+    useState<Message | null>(null);
+  const [reactionViewerMessage, setReactionViewerMessage] =
+    useState<Message | null>(null);
+
+  // Pinned
+  const [showPinnedModal, setShowPinnedModal] = useState(false);
+
+  // Add member
+  const [showAddMember, setShowAddMember] = useState(false);
+
   // Audio recording
   const [isRecording, setIsRecording] = useState(false);
   const [recordSeconds, setRecordSeconds] = useState(0);
@@ -168,13 +502,25 @@ export default function ChatDetailScreen() {
   const soundRef = useRef<Audio.Sound | null>(null);
   const [playingMessageId, setPlayingMessageId] = useState<string | null>(null);
   const [loadingAudioId, setLoadingAudioId] = useState<string | null>(null);
+
+  // Forward
   const [isForwardModalOpen, setIsForwardModalOpen] = useState(false);
   const [forwardingMessage, setForwardingMessage] = useState<Message | null>(
     null,
   );
   const [forwardSearch, setForwardSearch] = useState("");
   const [selectedConvs, setSelectedConvs] = useState<string[]>([]);
+
+  // Info panel
   const [showInfoPanel, setShowInfoPanel] = useState(false);
+
+  // LozaBot
+  const [showLozaBotSuggestions, setShowLozaBotSuggestions] = useState(false);
+
+  const conversationId =
+    typeof id === "string" ? id : Array.isArray(id) ? String(id[0]) : undefined;
+
+  if (!conversationId) return null;
 
   const {
     messages,
@@ -189,10 +535,15 @@ export default function ChatDetailScreen() {
     typingUsersByConv,
     updateStrangerStatus,
     forwardMessage,
-    pinnedMessages,
+    editMessage,
+    reactMessage,
+    togglePinMessage,
     fetchPinnedMessages,
-    pinMessage,
-    unpinMessage,
+    addMemberToGroup,
+    reviewJoinRequest,
+    fetchJoinRequests,
+    joinRequests,
+    fetchConversations,
   } = useChatStore();
   const [showPinnedList, setShowPinnedList] = useState(false);
 
@@ -221,10 +572,46 @@ export default function ChatDetailScreen() {
   const { user, userProfile } = useAuthStore();
   const { socket, onlineUsers } = useSocketStore();
 
+  const selectedThemeId = useChatThemeStore(
+    (s) => s.selectedByConversation[conversationId],
+  );
+  const theme = getChatThemeById(selectedThemeId);
+
+  const setThemeForConversation = useChatThemeStore(
+    (s) => s.setThemeForConversation,
+  );
+  const dynamicStyles = {
+    mainContainer: {
+      flex: 1,
+      backgroundColor: theme.appBackgroundColor,
+    },
+
+    header: {
+      flexDirection: "row",
+      alignItems: "center",
+      padding: 15,
+      backgroundColor: theme.messageAreaOverlay,
+    },
+
+    myBubble: {
+      backgroundColor: theme.mineBubbleColor,
+    },
+  };
   // ─── Derived data ───────────────────────────────────────────────────────────
   const activeConv = useMemo(
     () => conversations.find((c) => c._id === id),
     [conversations, id],
+  );
+
+  const isAdminOrOwner = useMemo(() => {
+    if (!activeConv?.group) return false;
+    const me = activeConv.participants.find((p) => p._id === user?.userId);
+    return me?.role === "owner" || me?.role === "admin";
+  }, [activeConv, user?.userId]);
+
+  const activeChatTheme = useMemo(
+    () => getChatThemeById(selectedThemeId),
+    [selectedThemeId],
   );
 
   const currentMessages = useMemo(() => {
@@ -252,13 +639,23 @@ export default function ChatDetailScreen() {
     [activeConv, user?.userId],
   );
 
+  const pinnedMessages = useMemo(
+    () =>
+      [...(activeConv?.pinnedMessages || [])]
+        .sort(
+          (a, b) =>
+            new Date(b.pinnedAt).getTime() - new Date(a.pinnedAt).getTime(),
+        )
+        .slice(0, 5),
+    [activeConv?.pinnedMessages],
+  );
+
   // ─── Poll aggregates ────────────────────────────────────────────────────────
   const pollAggregates = useMemo(() => {
     const map = new Map<string, PollAggregate>();
     currentMessages.forEach((message) => {
       const payload = decodeChatPayload(message.content);
       if (!payload) return;
-
       if (payload.kind === "poll" && payload.poll) {
         const existing = map.get(payload.poll.id);
         const latestActivityAt = existing?.latestActivityAt
@@ -275,7 +672,6 @@ export default function ChatDetailScreen() {
           latestActivityAt,
         });
       }
-
       if (payload.kind === "poll_vote" && payload.pollVote) {
         const aggregate = map.get(payload.pollVote.pollId) || {
           question: "Bình chọn",
@@ -348,6 +744,20 @@ export default function ChatDetailScreen() {
       );
   }, [currentMessages]);
 
+  // Group seen map
+  const groupSeenMap = useMemo(() => {
+    if (!activeConv?.group)
+      return new Map<string, typeof activeConv.participants>();
+    const map = new Map<string, typeof activeConv.participants>();
+    activeConv.participants.forEach((p) => {
+      if (p._id === user?.userId) return;
+      if (!p.lastReadMessageId) return;
+      const existing = map.get(p.lastReadMessageId) || [];
+      map.set(p.lastReadMessageId, [...existing, p]);
+    });
+    return map;
+  }, [activeConv, user?.userId]);
+
   // ─── Effects ────────────────────────────────────────────────────────────────
   useEffect(() => {
     if (id) {
@@ -364,75 +774,31 @@ export default function ChatDetailScreen() {
     };
   }, [id]);
 
-  const stopAndReleaseSound = useCallback(async () => {
-    if (!soundRef.current) return;
-    try {
-      await soundRef.current.stopAsync();
-      await soundRef.current.unloadAsync();
-    } catch {
-      // Best effort cleanup.
-    } finally {
-      soundRef.current = null;
-      setPlayingMessageId(null);
-      setLoadingAudioId(null);
+  useEffect(() => {
+    if (!id) return;
+    void fetchPinnedMessages(id as string).catch(() => undefined);
+  }, [id]);
+
+  useEffect(() => {
+    if (isAdminOrOwner && id) {
+      fetchJoinRequests(id as string);
     }
-  }, []);
+  }, [id, isAdminOrOwner]);
 
-  const handleToggleAudioPlayback = useCallback(
-    async (messageId: string, audioUrl: string) => {
-      try {
-        if (playingMessageId === messageId) {
-          await stopAndReleaseSound();
-          return;
-        }
+  useEffect(() => {
+    if (!id || !activeConv?.chatThemeId) return;
+    setThemeForConversation(id as string, activeConv.chatThemeId);
+  }, [activeConv?.chatThemeId, id, setThemeForConversation]);
 
-        setLoadingAudioId(messageId);
-        await stopAndReleaseSound();
-
-        await Audio.setAudioModeAsync({
-          allowsRecordingIOS: false,
-          playsInSilentModeIOS: true,
-          playThroughEarpieceAndroid: false,
-        });
-
-        const { sound } = await Audio.Sound.createAsync(
-          { uri: audioUrl },
-          { shouldPlay: true, volume: 1 },
-        );
-
-        soundRef.current = sound;
-        setPlayingMessageId(messageId);
-        setLoadingAudioId(null);
-
-        sound.setOnPlaybackStatusUpdate((status) => {
-          if (!status.isLoaded) return;
-          if (status.didJustFinish) {
-            void stopAndReleaseSound();
-          }
-        });
-      } catch {
-        setLoadingAudioId(null);
-        setPlayingMessageId(null);
-        Alert.alert("Lỗi", "Không thể phát âm thanh");
-      }
-    },
-    [playingMessageId, stopAndReleaseSound],
-  );
-
-  // Mark last message as read
   useEffect(() => {
     if (!id || !socket) return;
     const items = currentMessages;
     if (items.length === 0) return;
     const lastMsg = items.at(-1);
     if (!lastMsg || lastMsg.senderId === user?.userId) return;
-    socket.emit("mark-read", {
-      conversationId: id,
-      messageId: lastMsg._id,
-    });
+    socket.emit("mark-read", { conversationId: id, messageId: lastMsg._id });
   }, [id, currentMessages, socket, user?.userId]);
 
-  // Scroll to bottom on new messages
   useEffect(() => {
     if (displayMessages.length > 0) {
       setTimeout(
@@ -450,6 +816,10 @@ export default function ChatDetailScreen() {
     if (votePage > totalVotePages) setVotePage(totalVotePages);
   }, [totalVotePages, votePage]);
 
+  useEffect(() => {
+    setShowLozaBotSuggestions(LOZA_BOT_MENTION_REGEX.test(input.trim()));
+  }, [input]);
+
   // ─── Helpers ────────────────────────────────────────────────────────────────
   const canRecall = useCallback(
     (message: Message) => {
@@ -461,6 +831,14 @@ export default function ChatDetailScreen() {
       );
     },
     [user?.userId],
+  );
+
+  const isPinnedMessage = useCallback(
+    (messageId: string) =>
+      !!(activeConv?.pinnedMessages || []).find(
+        (item) => item.messageId === messageId,
+      ),
+    [activeConv?.pinnedMessages],
   );
 
   const sendStructuredMessage = useCallback(
@@ -483,15 +861,67 @@ export default function ChatDetailScreen() {
     ],
   );
 
+  // ─── Audio ──────────────────────────────────────────────────────────────────
+  const stopAndReleaseSound = useCallback(async () => {
+    if (!soundRef.current) return;
+    try {
+      await soundRef.current.stopAsync();
+      await soundRef.current.unloadAsync();
+    } catch {
+    } finally {
+      soundRef.current = null;
+      setPlayingMessageId(null);
+      setLoadingAudioId(null);
+    }
+  }, []);
+
+  const handleToggleAudioPlayback = useCallback(
+    async (messageId: string, audioUrl: string) => {
+      try {
+        if (playingMessageId === messageId) {
+          await stopAndReleaseSound();
+          return;
+        }
+        setLoadingAudioId(messageId);
+        await stopAndReleaseSound();
+        await Audio.setAudioModeAsync({
+          allowsRecordingIOS: false,
+          playsInSilentModeIOS: true,
+          playThroughEarpieceAndroid: false,
+        });
+        const { sound } = await Audio.Sound.createAsync(
+          { uri: audioUrl },
+          { shouldPlay: true, volume: 1 },
+        );
+        soundRef.current = sound;
+        setPlayingMessageId(messageId);
+        setLoadingAudioId(null);
+        sound.setOnPlaybackStatusUpdate((status) => {
+          if (!status.isLoaded) return;
+          if (status.didJustFinish) void stopAndReleaseSound();
+        });
+      } catch {
+        setLoadingAudioId(null);
+        setPlayingMessageId(null);
+        Alert.alert("Lỗi", "Không thể phát âm thanh");
+      }
+    },
+    [playingMessageId, stopAndReleaseSound],
+  );
+
   // ─── Send text ───────────────────────────────────────────────────────────────
   const handleSend = useCallback(async () => {
     if (!input.trim() || sending) return;
     try {
       setSending(true);
+      const trimmedInput = input.trim();
+      const botMatch = trimmedInput.match(LOZA_BOT_COMMAND_REGEX);
+      const isBotMention = LOZA_BOT_MENTION_REGEX.test(trimmedInput);
+
       const payload: ChatStructuredPayload = {
         version: 1,
         kind: replyingTo ? "reply" : "text",
-        text: input.trim(),
+        text: trimmedInput,
         reply: replyingTo
           ? {
               messageId: replyingTo._id,
@@ -505,11 +935,75 @@ export default function ChatDetailScreen() {
           : undefined,
       };
       await sendStructuredMessage(payload);
+
+      if (isBotMention && botMatch?.[2]) {
+        const botRequest = botMatch[2].trim();
+        const lastOwnIndex = [...displayMessages].reverse().findIndex((m) => {
+          if (m.senderId !== user?.userId) return false;
+          const p = decodeChatPayload(m.content);
+          const text = p?.text || m.content || "";
+          return !LOZA_BOT_MENTION_REGEX.test(text.trim());
+        });
+        const startIndex =
+          lastOwnIndex < 0
+            ? 0
+            : Math.max(0, displayMessages.length - 1 - lastOwnIndex);
+        const contextWindow = displayMessages.slice(startIndex);
+        const contextMessages = contextWindow.map((m) => {
+          const preview = getSafeMessagePreview(m.content);
+          const senderName =
+            m.senderId === user?.userId
+              ? userProfile?.displayName || user?.username || "Bạn"
+              : getSenderName(m, user?.userId, activeConv?.participants || []);
+          return {
+            sender: (m.senderId === user?.userId ? "me" : "other") as
+              | "me"
+              | "other",
+            senderName,
+            at: m.createdAt,
+            content: preview,
+          };
+        });
+        try {
+          const answer = await lozaBotService.ask({
+            conversationId: id as string,
+            request: botRequest,
+            fromLastOwnMessage: true,
+            messages:
+              contextMessages.length > 0
+                ? contextMessages
+                : [
+                    {
+                      sender: "me",
+                      senderName:
+                        userProfile?.displayName || user?.username || "Bạn",
+                      at: new Date().toISOString(),
+                      content: botRequest,
+                    },
+                  ],
+          });
+          const botReply =
+            answer?.trim() || "Mình chưa có dữ liệu để trả lời lúc này.";
+          const systemContent = `{{system}}🤖 LozaBot: ${botReply}`;
+          if (activeConv?.group) {
+            await sendGroupMessage(id as string, { content: systemContent });
+          } else if (otherUser?._id) {
+            await sendDirectMessage(otherUser._id, { content: systemContent });
+          }
+        } catch {
+          Alert.alert("LozaBot", "LozaBot đang bận, thử lại sau nhé");
+        }
+      } else if (isBotMention && !botMatch?.[2]) {
+        Alert.alert(
+          "LozaBot",
+          "Thêm yêu cầu sau @LozaBot, ví dụ: @LozaBot tóm tắt đoạn chat",
+        );
+      }
+
       setInput("");
       setReplyingTo(null);
-      if (socket?.connected) {
-        socket.emit("stop-typing", { conversationId: id });
-      }
+      setShowLozaBotSuggestions(false);
+      if (socket?.connected) socket.emit("stop-typing", { conversationId: id });
     } catch {
       Alert.alert("Lỗi", "Không thể gửi tin nhắn");
     } finally {
@@ -517,13 +1011,20 @@ export default function ChatDetailScreen() {
     }
   }, [
     activeConv?.participants,
+    activeConv?.group,
+    displayMessages,
     id,
     input,
+    otherUser?._id,
     replyingTo,
+    sendDirectMessage,
+    sendGroupMessage,
     sendStructuredMessage,
     sending,
     socket,
     user?.userId,
+    user?.username,
+    userProfile?.displayName,
   ]);
 
   // ─── Send attachment ─────────────────────────────────────────────────────────
@@ -558,28 +1059,59 @@ export default function ChatDetailScreen() {
     [sendStructuredMessage, uploadAttachment],
   );
 
-  // ─── Pick image ──────────────────────────────────────────────────────────────
+  // ─── Pick image (multiple) ───────────────────────────────────────────────────
   const handlePickImage = useCallback(async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       quality: 0.8,
+      allowsMultipleSelection: true,
+      selectionLimit: 10,
     });
-    if (!result.canceled && result.assets[0]) {
-      const asset = result.assets[0];
-      await sendAttachmentMessage(
-        {
-          uri: asset.uri,
-          name: asset.fileName || `image-${Date.now()}.jpg`,
-          type: asset.mimeType || "image/jpeg",
-          size: asset.fileSize,
-        },
-        "image",
-      );
+    if (!result.canceled && result.assets.length > 0) {
+      try {
+        setSending(true);
+        if (result.assets.length === 1) {
+          const asset = result.assets[0];
+          await sendAttachmentMessage(
+            {
+              uri: asset.uri,
+              name: asset.fileName || `image-${Date.now()}.jpg`,
+              type: asset.mimeType || "image/jpeg",
+              size: asset.fileSize,
+            },
+            "image",
+          );
+        } else {
+          const uploadedList = await Promise.all(
+            result.assets.map((asset) =>
+              uploadAttachment({
+                uri: asset.uri,
+                name: asset.fileName || `image-${Date.now()}.jpg`,
+                type: asset.mimeType || "image/jpeg",
+                size: asset.fileSize,
+              } as any),
+            ),
+          );
+          await sendStructuredMessage({
+            version: 1,
+            kind: "image",
+            attachments: uploadedList.map((u) => ({
+              name: u.fileName,
+              url: u.url,
+              mimeType: u.mimeType,
+              size: u.size,
+            })),
+          });
+        }
+      } catch {
+        Alert.alert("Lỗi", "Upload ảnh thất bại");
+      } finally {
+        setSending(false);
+        setActivePopup(null);
+      }
     }
-    setActivePopup(null);
-  }, [sendAttachmentMessage]);
+  }, [sendAttachmentMessage, sendStructuredMessage, uploadAttachment]);
 
-  // ─── Pick file ───────────────────────────────────────────────────────────────
   const handlePickFile = useCallback(async () => {
     const result = await DocumentPicker.getDocumentAsync({
       type: "*/*",
@@ -615,9 +1147,10 @@ export default function ChatDetailScreen() {
       recordingRef.current = recording;
       setIsRecording(true);
       setRecordSeconds(0);
-      recordingTimerRef.current = setInterval(() => {
-        setRecordSeconds((prev) => prev + 1);
-      }, 1000);
+      recordingTimerRef.current = setInterval(
+        () => setRecordSeconds((prev) => prev + 1),
+        1000,
+      );
     } catch {
       Alert.alert("Lỗi", "Không thể truy cập micro để ghi âm");
     }
@@ -708,7 +1241,7 @@ export default function ChatDetailScreen() {
     [pollAggregates, sendStructuredMessage, user, userProfile?.displayName],
   );
 
-  // ─── Recall / Delete ─────────────────────────────────────────────────────────
+  // ─── Recall / Delete / Edit ──────────────────────────────────────────────────
   const handleRecall = useCallback(async () => {
     if (!contextMenu || !id) return;
     try {
@@ -731,27 +1264,60 @@ export default function ChatDetailScreen() {
     }
   }, [contextMenu, id, deleteMessageForMe]);
 
+  const handleEdit = useCallback(async () => {
+    if (!editingMessage || !id || !editInput.trim()) return;
+    if (editInput.trim() === editingMessage.content) {
+      setEditingMessage(null);
+      return;
+    }
+    try {
+      await editMessage(editingMessage._id, id as string, editInput.trim());
+    } catch {
+      Alert.alert("Lỗi", "Không thể sửa tin nhắn");
+    } finally {
+      setEditingMessage(null);
+      setEditInput("");
+    }
+  }, [editingMessage, id, editInput, editMessage]);
+
+  const handleTogglePin = useCallback(
+    async (message: Message) => {
+      if (!id) return;
+      setContextMenu(null);
+      try {
+        await togglePinMessage(message._id, id as string);
+      } catch {
+        Alert.alert("Lỗi", "Không thể cập nhật ghim");
+      }
+    },
+    [id, togglePinMessage],
+  );
+
+  const handlePickReaction = useCallback(
+    async (message: Message, emoji: string) => {
+      if (!id) return;
+      setReactionMenuMessage(null);
+      try {
+        await reactMessage(message._id, id as string, emoji);
+      } catch {
+        Alert.alert("Lỗi", "Không thể thả cảm xúc");
+      }
+    },
+    [id, reactMessage],
+  );
+
+  // ─── Copy ────────────────────────────────────────────────────────────────────
   const getCopyableMessageText = useCallback((message: Message) => {
     if (message.isRecalled) return "";
     const payload = decodeChatPayload(message.content);
-    if (!payload) {
-      if (message.content?.trim()) return message.content.trim();
-      return message.imgUrl || "";
-    }
-
+    if (!payload) return message.content?.trim() || message.imgUrl || "";
     if (payload.kind === "text") return payload.text?.trim() || "";
     if (payload.kind === "reply") return payload.text?.trim() || "";
     if (payload.kind === "emoji") return payload.emoji || "";
     if (payload.kind === "image") return payload.attachment?.url || "";
-    if (payload.kind === "file") return "";
-    if (payload.kind === "audio") return payload.attachment?.url || "";
     if (payload.kind === "sticker") return payload.stickerUrl || "";
-    if (payload.kind === "poll" && payload.poll) {
-      return `${payload.poll.question}\n${payload.poll.options
-        .map((o) => `- ${o.label}`)
-        .join("\n")}`;
-    }
-
+    if (payload.kind === "poll" && payload.poll)
+      return `${payload.poll.question}\n${payload.poll.options.map((o) => `- ${o.label}`).join("\n")}`;
     return getSafeMessagePreview(message.content);
   }, []);
 
@@ -772,7 +1338,6 @@ export default function ChatDetailScreen() {
       Alert.alert("Thông báo", "Tin nhắn này không có nội dung để sao chép");
       return;
     }
-
     try {
       await Clipboard.setStringAsync(copyText);
       Alert.alert("Đã sao chép", "Nội dung tin nhắn đã được sao chép");
@@ -785,13 +1350,8 @@ export default function ChatDetailScreen() {
 
   const handleOpenAttachment = useCallback(async (url: string) => {
     if (!url) return;
-    const normalizedUrl = encodeURI(url);
-
     try {
-      const supported = await WebBrowser.openBrowserAsync(normalizedUrl);
-      if (supported.type === "cancel" || supported.type === "dismiss") {
-        return;
-      }
+      await WebBrowser.openBrowserAsync(encodeURI(url));
     } catch {
       Alert.alert("Lỗi", "Không thể mở tệp này");
     }
@@ -813,10 +1373,34 @@ export default function ChatDetailScreen() {
         );
       }
 
+      // System message inline
+      if (
+        message.type === "system" ||
+        message.content?.startsWith("{{system}}")
+      ) {
+        const text = message.content.replace("{{system}}", "");
+        return (
+          <View
+            style={{
+              alignItems: "center",
+              paddingHorizontal: 8,
+              paddingVertical: 4,
+            }}
+          >
+            <Text
+              style={{ fontSize: 12, color: "#94a3b8", textAlign: "center" }}
+            >
+              {text}
+            </Text>
+          </View>
+        );
+      }
+
       const payload = decodeChatPayload(message.content);
       const openMenu = () => {
-        setContextMenu({ message: message, visible: true });
+        if (!message.isRecalled) setContextMenu({ message, visible: true });
       };
+
       if (!payload) {
         if (message.imgUrl) {
           return (
@@ -832,7 +1416,11 @@ export default function ChatDetailScreen() {
             </TouchableOpacity>
           );
         }
-        return <Text style={styles.msgText}>{message.content || ""}</Text>;
+        return (
+          <Text style={[styles.msgText, isMine && styles.msgTextMine]}>
+            {message.content || ""}
+          </Text>
+        );
       }
 
       if (payload.kind === "reply") {
@@ -846,7 +1434,9 @@ export default function ChatDetailScreen() {
                 {payload.reply?.preview || ""}
               </Text>
             </View>
-            <Text style={styles.msgText}>{payload.text || ""}</Text>
+            <Text style={[styles.msgText, isMine && styles.msgTextMine]}>
+              {payload.text || ""}
+            </Text>
           </View>
         );
       }
@@ -860,7 +1450,7 @@ export default function ChatDetailScreen() {
           <TouchableOpacity
             activeOpacity={0.9}
             onPress={() => openImagePreview(payload.attachment?.url)}
-            onLongPress={openMenu} // THÊM DÒNG NÀY
+            onLongPress={openMenu}
             delayLongPress={300}
           >
             <Image
@@ -872,12 +1462,59 @@ export default function ChatDetailScreen() {
         );
       }
 
-      if (payload?.kind === "file" && payload.attachment) {
+      // Multiple images
+      if (payload.kind === "image" && payload.attachments?.length) {
+        const atts = payload.attachments;
+        if (atts.length === 1) {
+          return (
+            <TouchableOpacity
+              activeOpacity={0.9}
+              onPress={() => openImagePreview(atts[0].url)}
+              onLongPress={openMenu}
+              delayLongPress={300}
+            >
+              <Image
+                source={{ uri: atts[0].url }}
+                style={styles.imageMsg}
+                resizeMode="cover"
+              />
+            </TouchableOpacity>
+          );
+        }
+        return (
+          <View
+            style={{
+              flexDirection: "row",
+              flexWrap: "wrap",
+              gap: 4,
+              maxWidth: 220,
+            }}
+          >
+            {atts.map((img, index) => (
+              <TouchableOpacity
+                key={img.url || index}
+                activeOpacity={0.9}
+                onPress={() => openImagePreview(img.url)}
+                onLongPress={openMenu}
+                delayLongPress={300}
+              >
+                <Image
+                  source={{ uri: img.url }}
+                  style={{ width: 104, height: 104, borderRadius: 10 }}
+                  resizeMode="cover"
+                />
+              </TouchableOpacity>
+            ))}
+          </View>
+        );
+      }
+
+      if (payload.kind === "file" && payload.attachment) {
         return (
           <TouchableOpacity
             style={styles.fileAction}
             onPress={() => void handleOpenAttachment(payload.attachment!.url)}
-            onLongPress={openMenu} // THÊM DÒNG NÀY
+            onLongPress={openMenu}
             delayLongPress={300}
           >
             <Text style={styles.fileMsg}>📎 {payload.attachment.name}</Text>
@@ -924,20 +1561,62 @@ export default function ChatDetailScreen() {
         );
       }
 
+      // Call message
+      if (payload.kind === "call" && payload.call) {
+        const callLabel =
+          payload.call.callType === "video"
+            ? "Cuộc gọi video"
+            : "Cuộc gọi thoại";
+        return (
+          <View style={styles.callCard}>
+            <View
+              style={[
+                styles.callIconWrapper,
+                {
+                  backgroundColor:
+                    payload.call.callType === "video"
+                      ? "rgba(59,130,246,.15)"
+                      : "rgba(16,185,129,.15)",
+                },
+              ]}
+            >
+              {payload.call.callType === "video" ? (
+                <Video size={18} color="#60a5fa" />
+              ) : (
+                <Phone size={18} color="#34d399" />
+              )}
+            </View>
+            <View>
+              <Text style={styles.callLabel}>{callLabel}</Text>
+              <Text style={styles.callDuration}>
+                {formatCallDuration(payload.call.durationSeconds || 0)} •{" "}
+                {payload.call.endedAt
+                  ? formatMessageDateTime(payload.call.endedAt)
+                  : "Đang diễn ra"}
+              </Text>
+              {payload.call.upgradedFrom === "voice" &&
+                payload.call.upgradedTo === "video" && (
+                  <Text style={styles.callUpgradeNote}>
+                    Đã nâng cấp từ gọi thoại sang video
+                  </Text>
+                )}
+            </View>
+          </View>
+        );
+      }
+
       if (payload.kind === "poll" && payload.poll) {
         const aggregate = pollAggregates.get(payload.poll.id);
         const votedOption = aggregate?.votes.find(
           (v) => v.userId === user?.userId,
         )?.optionId;
         const totalVotes = aggregate?.votes.length || 0;
-
         return (
           <View style={styles.pollContainer}>
             <Text style={styles.pollQuestion}>{payload.poll.question}</Text>
             <Text style={styles.pollMeta}>
               {totalVotes} vote • Chọn một câu trả lời
             </Text>
-
             {payload.poll.options.map((option) => {
               const voters =
                 aggregate?.votes.filter((v) => v.optionId === option.id) || [];
@@ -945,7 +1624,6 @@ export default function ChatDetailScreen() {
               const percent = totalVotes
                 ? Math.round((voters.length / totalVotes) * 100)
                 : 0;
-
               return (
                 <TouchableOpacity
                   key={option.id}
@@ -977,7 +1655,6 @@ export default function ChatDetailScreen() {
                 </TouchableOpacity>
               );
             })}
-
             <TouchableOpacity
               style={styles.pollDetailBtn}
               onPress={() =>
@@ -995,7 +1672,7 @@ export default function ChatDetailScreen() {
       }
 
       return (
-        <Text style={styles.msgText}>
+        <Text style={[styles.msgText, isMine && styles.msgTextMine]}>
           {payload.text || payload.emoji || message.content || ""}
         </Text>
       );
@@ -1015,12 +1692,25 @@ export default function ChatDetailScreen() {
   const renderMessage = useCallback(
     ({ item }: { item: Message }) => {
       const isMine = item.senderId === user?.userId;
+      const isGroup = !!activeConv?.group;
       const payload = decodeChatPayload(item.content);
+
+      // System message
+      if (item.type === "system" || item.content?.startsWith("{{system}}")) {
+        const text = item.content.replace("{{system}}", "");
+        return (
+          <View style={styles.systemMsgWrapper}>
+            <Text style={styles.systemMsgText}>{text}</Text>
+          </View>
+        );
+      }
+
       const isPollCard =
         payload?.kind === "poll" && !!payload.poll && !item.isRecalled;
       const isImageCard =
         !item.isRecalled &&
-        ((payload?.kind === "image" && !!payload.attachment?.url) ||
+        ((payload?.kind === "image" &&
+          (!!payload.attachment?.url || !!payload.attachments?.length)) ||
           (!payload && !!item.imgUrl));
       const isFileCard = payload?.kind === "file" && !!payload.attachment;
       const isAudioCard =
@@ -1029,23 +1719,47 @@ export default function ChatDetailScreen() {
       const isLastRead =
         otherLastReadMessageId &&
         item._id?.toString() === otherLastReadMessageId.toString();
+      const groupSeenParticipants = isGroup
+        ? groupSeenMap.get(item._id?.toString()) || []
+        : [];
+
+      const senderParticipant = !isMine
+        ? activeConv?.participants.find((p) => p._id === item.senderId)
+        : undefined;
 
       return (
         <View style={styles.msgWrapper}>
+          {/* Group sender name */}
+          {!isMine && (
+            <Text style={styles.senderName}>
+              {senderParticipant?.displayName || "Người dùng"}
+            </Text>
+          )}
           <View
             style={[
               styles.msgRow,
               isPollCard
                 ? styles.msgRowPoll
-                : isImageCard
-                  ? isMine
-                    ? styles.msgRowMine
-                    : styles.msgRowOther
-                  : isMine
-                    ? styles.msgRowMine
-                    : styles.msgRowOther,
+                : isMine
+                  ? styles.msgRowMine
+                  : styles.msgRowOther,
             ]}
           >
+            {/* Group sender avatar */}
+            {!isMine && senderParticipant && (
+              <SenderAvatar participant={senderParticipant} />
+            )}
+
+            {/* Reaction button left (for others) */}
+            {isMine && !item.isRecalled && (
+              <TouchableOpacity
+                onPress={() => setReactionMenuMessage(item)}
+                style={styles.reactionBtn}
+              >
+                <SmilePlus size={16} color="#64748b" />
+              </TouchableOpacity>
+            )}
+
             <TouchableOpacity
               onLongPress={() => {
                 if (!item.isRecalled)
@@ -1073,7 +1787,52 @@ export default function ChatDetailScreen() {
             >
               {renderStructuredMessage(item, isMine)}
             </TouchableOpacity>
+
+            {/* Reaction button right (for mine) */}
+            {!isMine && !item.isRecalled && (
+              <TouchableOpacity
+                onPress={() => setReactionMenuMessage(item)}
+                style={[styles.reactionBtn, { marginRight: 6 }]}
+              >
+                <SmilePlus size={16} color="#64748b" />
+              </TouchableOpacity>
+            )}
           </View>
+
+          {/* Reactions display */}
+          {!!item.reactions?.length && (
+            <View
+              style={[
+                styles.reactionsRow,
+                {
+                  alignSelf: isMine ? "flex-end" : "flex-start",
+                  flexDirection: "row",
+                },
+              ]}
+            >
+              {(
+                Object.entries(
+                  (item.reactions || []).reduce(
+                    (acc: Record<string, number>, r: MessageReaction) => {
+                      acc[r.emoji] = (acc[r.emoji] || 0) + 1;
+                      return acc;
+                    },
+                    {} as Record<string, number>,
+                  ),
+                ) as Array<[string, number]>
+              ).map(([emoji, count]) => (
+                <TouchableOpacity
+                  key={`${item._id}-${emoji}`}
+                  onPress={() => setReactionViewerMessage(item)}
+                  style={styles.reactionChip}
+                >
+                  <Text style={styles.reactionChipText}>
+                    {emoji} {count}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
 
           <View
             style={[
@@ -1085,6 +1844,13 @@ export default function ChatDetailScreen() {
                   : styles.msgTimeRowOther,
             ]}
           >
+            {item.isEdited && !item.isRecalled && (
+              <Text
+                style={[styles.editedLabel, isMine ? { color: "#94a3b8" } : {}]}
+              >
+                (đã chỉnh sửa){" "}
+              </Text>
+            )}
             <Text
               style={[
                 styles.msgTime,
@@ -1096,8 +1862,8 @@ export default function ChatDetailScreen() {
             </Text>
           </View>
 
-          {/* Seen avatar */}
-          {isMine && !item.isRecalled && isLastRead && (
+          {/* Direct: seen avatar */}
+          {isMine && !item.isRecalled && isLastRead && !isGroup && (
             <View style={styles.seenRow}>
               {otherUser?.avatarUrl ? (
                 <Image
@@ -1111,10 +1877,20 @@ export default function ChatDetailScreen() {
               )}
             </View>
           )}
+
+          {/* Group: seen avatars */}
+          {isMine &&
+            !item.isRecalled &&
+            isGroup &&
+            groupSeenParticipants.length > 0 && (
+              <GroupSeenAvatars seenParticipants={groupSeenParticipants} />
+            )}
         </View>
       );
     },
     [
+      activeConv,
+      groupSeenMap,
       otherLastReadMessageId,
       otherUser?.avatarUrl,
       renderStructuredMessage,
@@ -1123,8 +1899,17 @@ export default function ChatDetailScreen() {
   );
 
   // ─── Render ──────────────────────────────────────────────────────────────────
+  const myReaction = reactionMenuMessage
+    ? (reactionMenuMessage.reactions || []).find(
+        (r) => r.userId === user?.userId,
+      )?.emoji
+    : undefined;
+
+  const groupAvatars =
+    activeConv?.participants?.map((p) => p.avatarUrl).filter(Boolean) || [];
+
   return (
-    <View style={styles.mainContainer}>
+    <View style={[styles.mainContainer, dynamicStyles.mainContainer]}>
       <SafeAreaView style={{ flex: 1 }}>
         {/* Header */}
         <View style={styles.header}>
@@ -1135,45 +1920,221 @@ export default function ChatDetailScreen() {
             <ChevronLeft color="white" size={28} />
           </TouchableOpacity>
           <View style={styles.headerCenter}>
-            <Text style={styles.headerTitle} numberOfLines={1}>
-              {activeConv?.group?.name ||
-                otherUser?.displayName ||
-                "Đang tải..."}
-            </Text>
-            {activeConv?.strangerStatus === "accepted" &&
-              activeConv?.isStranger && (
-                <View style={styles.strangerBadge}>
-                  <UserIcon size={10} color="#94a3b8" />
-                  <Text style={styles.strangerBadgeText}>Người lạ</Text>
-                </View>
-              )}
-            {!activeConv?.group && activeConv && (
-              <View
-                style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
-              >
-                <View
-                  style={{
-                    width: 6,
-                    height: 6,
-                    borderRadius: 3,
-                    backgroundColor: onlineUsers.some(
-                      (id: string) => String(id) === String(otherUser?._id),
-                    )
-                      ? "#10b981"
-                      : "#64748b",
-                  }}
-                />
-                <Text style={styles.headerSubtitle}>
-                  {onlineUsers.some(
-                    (id: string) => String(id) === String(otherUser?._id),
-                  )
-                    ? "Đang hoạt động"
-                    : "Ngoại tuyến"}
-                </Text>
+            <View
+              style={{ flexDirection: "row", alignItems: "center", flex: 1 }}
+            >
+              {/* ================= AVATAR SECTION ================= */}
+              <View style={{ position: "relative", marginRight: 12 }}>
+                {activeConv?.group ? (
+                  <View style={styles.triangleAvatar}>
+                    {activeConv.group.avatar ? (
+                      <Image
+                        source={{ uri: activeConv.group.avatar }}
+                        style={{
+                          width: 44, // Tăng nhẹ kích thước để cân đối
+                          height: 44,
+                          borderRadius: 14, // Bo góc kiểu Squircle hiện đại hơn
+                          borderWidth: 1.5,
+                          borderColor: "rgba(255,255,255,0.1)",
+                        }}
+                        resizeMode="cover"
+                      />
+                    ) : (
+                      <View
+                        style={{ width: 44, height: 44, position: "relative" }}
+                      >
+                        {/* Logic Triangle Avatar tối ưu lại vị trí */}
+                        {groupAvatars[0] && (
+                          <Image
+                            source={{ uri: groupAvatars[0] }}
+                            style={[
+                              styles.avtTop,
+                              { width: 26, height: 26, borderRadius: 13 },
+                            ]}
+                          />
+                        )}
+                        {groupAvatars[1] && (
+                          <Image
+                            source={{ uri: groupAvatars[1] }}
+                            style={[
+                              styles.avtLeft,
+                              {
+                                width: 26,
+                                height: 26,
+                                borderRadius: 13,
+                                borderWidth: 2,
+                                borderColor: "#0f172a",
+                              },
+                            ]}
+                          />
+                        )}
+                        {groupAvatars[2] && (
+                          <View
+                            style={[
+                              styles.avtRight,
+                              {
+                                width: 26,
+                                height: 26,
+                                borderRadius: 13,
+                                backgroundColor: "#1e293b",
+                                justifyContent: "center",
+                                alignItems: "center",
+                                borderWidth: 2,
+                                borderColor: "#0f172a",
+                              },
+                            ]}
+                          >
+                            {groupAvatars.length > 3 ? (
+                              <Text
+                                style={{
+                                  color: "#60a5fa",
+                                  fontSize: 10,
+                                  fontWeight: "800",
+                                }}
+                              >
+                                +{groupAvatars.length - 2}
+                              </Text>
+                            ) : (
+                              <Image
+                                source={{ uri: groupAvatars[2] }}
+                                style={{
+                                  width: "100%",
+                                  height: "100%",
+                                  borderRadius: 13,
+                                }}
+                              />
+                            )}
+                          </View>
+                        )}
+                      </View>
+                    )}
+                  </View>
+                ) : (
+                  /* ONE CHAT AVATAR */
+                  <View>
+                    {otherUser?.avatarUrl ? (
+                      <Image
+                        source={{ uri: otherUser.avatarUrl }}
+                        style={{ width: 44, height: 44, borderRadius: 22 }}
+                      />
+                    ) : (
+                      <View
+                        style={{
+                          width: 44,
+                          height: 44,
+                          borderRadius: 22,
+                          backgroundColor: getAvatarColor(
+                            otherUser?.displayName || "",
+                          ),
+                          justifyContent: "center",
+                          alignItems: "center",
+                        }}
+                      >
+                        <Text
+                          style={{
+                            color: "white",
+                            fontWeight: "bold",
+                            fontSize: 18,
+                          }}
+                        >
+                          {otherUser?.displayName?.[0]}
+                        </Text>
+                      </View>
+                    )}
+                    {/* Status Indicator gọn hơn cho 1-1 */}
+                    {onlineUsers.includes(otherUser?._id!) && (
+                      <View
+                        style={{
+                          position: "absolute",
+                          bottom: 0,
+                          right: 0,
+                          width: 12,
+                          height: 12,
+                          borderRadius: 6,
+                          backgroundColor: "#10b981",
+                          borderWidth: 2,
+                          borderColor: "#0f172a",
+                        }}
+                      />
+                    )}
+                  </View>
+                )}
               </View>
-            )}
+
+              {/* ================= TEXT INFO SECTION ================= */}
+              <View style={{ flex: 1, justifyContent: "center" }}>
+                <Text
+                  style={{
+                    color: "#f8fafc",
+                    fontSize: 17,
+                    fontWeight: "700",
+                    letterSpacing: 0.3,
+                    marginBottom: 2,
+                  }}
+                  numberOfLines={1}
+                >
+                  {activeConv?.group?.name ||
+                    otherUser?.displayName ||
+                    "Đang tải..."}
+                </Text>
+
+                {/* Subtitle logic */}
+                <View style={{ flexDirection: "row", alignItems: "center" }}>
+                  {activeConv?.group ? (
+                    <Text
+                      style={{
+                        color: "#94a3b8",
+                        fontSize: 12,
+                        fontWeight: "500",
+                      }}
+                    >
+                      {activeConv.participants.length} thành viên
+                      {typingUsers.length > 0 && (
+                        <Text style={{ color: "#60a5fa" }}>
+                          {" "}
+                          • đang soạn...
+                        </Text>
+                      )}
+                    </Text>
+                  ) : (
+                    <Text
+                      style={{
+                        color: onlineUsers.includes(otherUser?._id!)
+                          ? "#10b981"
+                          : "#64748b",
+                        fontSize: 12,
+                        fontWeight: "600",
+                      }}
+                    >
+                      {onlineUsers.includes(otherUser?._id!)
+                        ? "Đang hoạt động"
+                        : "Ngoại tuyến"}
+                    </Text>
+                  )}
+                </View>
+              </View>
+            </View>
           </View>
           <View style={styles.headerActions}>
+            {activeConv?.group && (
+              <TouchableOpacity
+                style={styles.actionBtn}
+                onPress={() => setShowAddMember(true)}
+              >
+                <UserPlus size={20} color="#94a3b8" />
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity
+              style={styles.actionBtn}
+              onPress={() =>
+                setActivePopup((p) => (p === "theme" ? null : "theme"))
+              }
+            >
+              <Palette
+                size={20}
+                color={activePopup === "theme" ? "#60a5fa" : "#94a3b8"}
+              />
+            </TouchableOpacity>
             <TouchableOpacity style={styles.actionBtn} onPress={() => {}}>
               <Phone size={20} color="#94a3b8" />
             </TouchableOpacity>
@@ -1189,119 +2150,21 @@ export default function ChatDetailScreen() {
           </View>
         </View>
 
-        {/* Banner ghim tin nhắn */}
-        {(pinnedMessages[id as string] ?? []).length > 0 && (() => {
-          const pins = pinnedMessages[id as string];
-          const top = pins[0];
-          const topPayload = decodeChatPayload(top.content);
-          const topPreview =
-            topPayload?.text
-            || topPayload?.reply?.preview
-            || (topPayload?.kind === "image" ? "Ảnh" : null)
-            || (topPayload?.kind === "audio" ? "Ghi âm" : null)
-            || (topPayload?.kind === "file" ? topPayload.attachment?.name : null)
-            || (topPayload?.kind === "sticker" ? "Sticker" : null)
-            || (topPayload?.kind === "poll" ? topPayload.poll?.question : null)
-            || top.content || "";
-          const topSender = getSenderName(top, user?.userId, activeConv?.participants);
-
-          return (
-            <View style={styles.wrapper}>
-              {/* Row collapsed */}
-              {!showPinnedList && (
-                <View style={styles.row}>
-                  <View style={styles.iconCircle}>
-                    <Pin size={14} color="#60a5fa" />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.label}>Tin nhắn</Text>
-                    <Text style={styles.preview} numberOfLines={1}>
-                      <Text style={styles.sender}>{topSender}: </Text>
-                      {topPreview}
-                    </Text>
-                  </View>
-                  {pins.length > 1 && (
-                    <TouchableOpacity
-                      onPress={() => setShowPinnedList(true)}
-                      style={styles.badge}
-                    >
-                      <Text style={styles.badgeText}>+{pins.length - 1} ghim ▼</Text>
-                    </TouchableOpacity>
-                  )}
-                  <TouchableOpacity
-                    onPress={() => unpinMessage(id as string, top._id)}
-                    style={{ padding: 4 }}
-                  >
-                    <Text style={{ color: "#64748b", fontSize: 16 }}>···</Text>
-                  </TouchableOpacity>
-                </View>
-              )}
-
-              {/* Danh sách mở rộng */}
-              {showPinnedList && (
-                <View>
-                  <View style={styles.listHeader}>
-                    <Text style={styles.listTitle}>Danh sách ghim ({pins.length})</Text>
-                    <TouchableOpacity onPress={() => setShowPinnedList(false)}>
-                      <Text style={styles.collapseText}>Thu gọn ▲</Text>
-                    </TouchableOpacity>
-                  </View>
-                  {pins.map((msg) => {
-                    const payload = decodeChatPayload(msg.content);
-                    const preview =
-                      payload?.text
-                      || payload?.reply?.preview
-                      || (payload?.kind === "image" ? "Ảnh" : null)
-                      || (payload?.kind === "audio" ? "Ghi âm" : null)
-                      || (payload?.kind === "file" ? payload.attachment?.name : null)
-                      || (payload?.kind === "sticker" ? "Sticker" : null)
-                      || (payload?.kind === "poll" ? payload.poll?.question : null)
-                      || msg.content || "";
-                    const sender = getSenderName(msg, user?.userId, activeConv?.participants);
-
-                    return (
-                      <View key={msg._id} style={styles.row}>
-                        <View style={styles.iconCircle}>
-                          <Pin size={14} color="#60a5fa" />
-                        </View>
-                        <View style={{ flex: 1 }}>
-                          <Text style={styles.label}>Tin nhắn</Text>
-                          <Text style={styles.preview} numberOfLines={1}>
-                            <Text style={styles.sender}>{sender}: </Text>
-                            {preview}
-                          </Text>
-                        </View>
-                        <TouchableOpacity
-                          onPress={() => {
-                            Alert.alert("Tùy chọn", "", [
-                              {
-                                text: "Copy",
-                                onPress: () => {
-                                  const p = decodeChatPayload(msg.content);
-                                  const text = p?.text || p?.reply?.preview || msg.content || "";
-                                  void Clipboard.setStringAsync(text);
-                                },
-                              },
-                              {
-                                text: "Bỏ ghim",
-                                style: "destructive",
-                                onPress: () => unpinMessage(id as string, msg._id),
-                              },
-                              { text: "Hủy", style: "cancel" },
-                            ]);
-                          }}
-                          style={{ padding: 4 }}
-                        >
-                          <Text style={{ color: "#64748b", fontSize: 16 }}>···</Text>
-                        </TouchableOpacity>
-                      </View>
-                    );
-                  })}
-                </View>
-              )}
-            </View>
-          );
-        })()}
+        {/* Pinned messages banner */}
+        {pinnedMessages.length > 0 && (
+          <TouchableOpacity
+            style={styles.pinnedBanner}
+            onPress={() => setShowPinnedModal(true)}
+          >
+            <Pin size={13} color="#93c5fd" />
+            <Text style={styles.pinnedBannerText} numberOfLines={1}>
+              {getSafeMessagePreview(pinnedMessages[0].content || "Tin nhắn")}
+            </Text>
+            <Text style={styles.pinnedBannerCount}>
+              Xem ghim ({pinnedMessages.length})
+            </Text>
+          </TouchableOpacity>
+        )}
 
         {/* Messages */}
         <FlatList
@@ -1438,6 +2301,86 @@ export default function ChatDetailScreen() {
               </View>
             )}
 
+            {/* Edit banner */}
+            {editingMessage && (
+              <View style={styles.editBanner}>
+                <View
+                  style={{
+                    flexDirection: "row",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    marginBottom: 6,
+                  }}
+                >
+                  <Text style={styles.editBannerTitle}>
+                    ✏️ Đang chỉnh sửa tin nhắn
+                  </Text>
+                  <TouchableOpacity
+                    onPress={() => {
+                      setEditingMessage(null);
+                      setEditInput("");
+                    }}
+                  >
+                    <X size={14} color="#94a3b8" />
+                  </TouchableOpacity>
+                </View>
+                <View style={{ flexDirection: "row", gap: 8 }}>
+                  <TextInput
+                    style={[
+                      styles.textInput,
+                      { flex: 1, borderColor: "rgba(234,179,8,.4)" },
+                    ]}
+                    value={editInput}
+                    onChangeText={setEditInput}
+                    autoFocus
+                    onSubmitEditing={() => void handleEdit()}
+                    returnKeyType="done"
+                  />
+                  <TouchableOpacity
+                    onPress={() => void handleEdit()}
+                    disabled={!editInput.trim()}
+                    style={{
+                      backgroundColor: editInput.trim() ? "#ca8a04" : "#334155",
+                      borderRadius: 10,
+                      paddingHorizontal: 14,
+                      justifyContent: "center",
+                    }}
+                  >
+                    <Text
+                      style={{
+                        color: "white",
+                        fontWeight: "600",
+                        fontSize: 13,
+                      }}
+                    >
+                      Lưu
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+
+            {/* LozaBot suggestions */}
+            {showLozaBotSuggestions && (
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={{ marginBottom: 8 }}
+              >
+                <View style={{ flexDirection: "row", gap: 8 }}>
+                  {LOZA_BOT_SUGGESTIONS.map((s) => (
+                    <TouchableOpacity
+                      key={s}
+                      onPress={() => setInput(`@${LOZA_BOT_NAME} ${s}`)}
+                      style={styles.lozaSuggestion}
+                    >
+                      <Text style={styles.lozaSuggestionText}>{s}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </ScrollView>
+            )}
+
             {/* Action icons row */}
             <View style={styles.actionsRow}>
               <TouchableOpacity
@@ -1478,7 +2421,7 @@ export default function ChatDetailScreen() {
             <View style={styles.inputRow}>
               <TextInput
                 style={styles.textInput}
-                placeholder="Nhập tin nhắn..."
+                placeholder="Nhập tin nhắn... hoặc @LozaBot"
                 placeholderTextColor="#64748b"
                 value={input}
                 onChangeText={(text) => {
@@ -1520,7 +2463,7 @@ export default function ChatDetailScreen() {
         </KeyboardAvoidingView>
       </SafeAreaView>
 
-      {/* ── Popup Modals ── */}
+      {/* ── Popups ── */}
 
       {/* Media popup */}
       <Modal
@@ -1540,7 +2483,7 @@ export default function ChatDetailScreen() {
               onPress={handlePickImage}
             >
               <ImageIcon size={18} color="#94a3b8" />
-              <Text style={styles.popupActionText}>Chọn ảnh</Text>
+              <Text style={styles.popupActionText}>Chọn ảnh (tối đa 10)</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.popupAction}
@@ -1553,62 +2496,66 @@ export default function ChatDetailScreen() {
         </Pressable>
       </Modal>
 
-      {/* Full-screen image preview */}
+      {/* Theme picker popup */}
       <Modal
-        visible={!!previewImageUrl}
+        visible={activePopup === "theme"}
         transparent
-        animationType="fade"
-        onRequestClose={() => {
-          setPreviewImageUrl(null);
-          setPreviewImageLoading(false);
-          setPreviewImageError(null);
-        }}
+        animationType="slide"
+        onRequestClose={() => setActivePopup(null)}
       >
         <Pressable
-          style={styles.previewRoot}
-          onPress={() => {
-            setPreviewImageUrl(null);
-            setPreviewImageLoading(false);
-            setPreviewImageError(null);
-          }}
+          style={styles.modalOverlay}
+          onPress={() => setActivePopup(null)}
         >
-          <Pressable
-            style={styles.previewCloseBtn}
-            onPress={() => {
-              setPreviewImageUrl(null);
-              setPreviewImageLoading(false);
-              setPreviewImageError(null);
-            }}
-          >
-            <X size={20} color="#f8fafc" />
-          </Pressable>
-
-          {!!previewImageUrl && (
-            <Pressable style={styles.previewImageWrap} onPress={() => {}}>
-              {previewImageLoading && !previewImageError && (
-                <ActivityIndicator size="large" color="#bfdbfe" />
-              )}
-              {!!previewImageError && (
-                <Text style={styles.previewErrorText}>{previewImageError}</Text>
-              )}
-              <Image
-                source={{ uri: previewImageUrl }}
-                style={styles.previewImage}
-                resizeMode="contain"
-                onLoadStart={() => {
-                  setPreviewImageLoading(true);
-                  setPreviewImageError(null);
-                }}
-                onLoadEnd={() => {
-                  setPreviewImageLoading(false);
-                }}
-                onError={() => {
-                  setPreviewImageLoading(false);
-                  setPreviewImageError("Không tải được ảnh");
-                }}
-              />
-            </Pressable>
-          )}
+          <View style={styles.popupSheet}>
+            <Text style={styles.popupTitle}>Giao diện chat</Text>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {CHAT_THEME_OPTIONS.map((theme) => {
+                const isActive = theme.id === activeChatTheme.id;
+                const isGradient = theme.mode === "gradient";
+                return (
+                  <TouchableOpacity
+                    key={theme.id}
+                    style={[
+                      styles.popupAction,
+                      isActive && {
+                        borderColor: "#60a5fa",
+                        backgroundColor: "rgba(37,99,235,.12)",
+                      },
+                    ]}
+                    onPress={() => {
+                      if (id) setThemeForConversation(id as string, theme.id);
+                      setActivePopup(null);
+                    }}
+                  >
+                    <View
+                      style={{
+                        width: 32,
+                        height: 32,
+                        borderRadius: 8,
+                        backgroundColor: isGradient
+                          ? theme.mineBubbleColors?.[0]
+                          : theme.mineBubbleColor,
+                        borderWidth: 1,
+                        borderColor: "rgba(255,255,255,.2)",
+                      }}
+                    />
+                    <Text
+                      style={[
+                        styles.popupActionText,
+                        isActive && { color: "#bfdbfe", fontWeight: "700" },
+                      ]}
+                    >
+                      {theme.name}
+                    </Text>
+                    {isActive && (
+                      <Text style={{ color: "#60a5fa", fontSize: 12 }}>✓</Text>
+                    )}
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
         </Pressable>
       </Modal>
 
@@ -1788,6 +2735,177 @@ export default function ChatDetailScreen() {
         </KeyboardAvoidingView>
       </Modal>
 
+      {/* Reaction menu */}
+      <Modal
+        visible={!!reactionMenuMessage}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setReactionMenuMessage(null)}
+      >
+        <Pressable
+          style={styles.modalOverlay}
+          onPress={() => setReactionMenuMessage(null)}
+        >
+          <View style={styles.reactionMenuSheet}>
+            <View style={styles.reactionMenuRow}>
+              {REACTION_OPTIONS.map((emoji) => {
+                const active = myReaction === emoji;
+                return (
+                  <TouchableOpacity
+                    key={emoji}
+                    onPress={() =>
+                      reactionMenuMessage &&
+                      void handlePickReaction(reactionMenuMessage, emoji)
+                    }
+                    style={[
+                      styles.reactionEmojiBtn,
+                      active && styles.reactionEmojiBtnActive,
+                    ]}
+                  >
+                    <Text style={{ fontSize: 22 }}>{emoji}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            {myReaction && reactionMenuMessage && (
+              <TouchableOpacity
+                style={styles.cancelReactionBtn}
+                onPress={() =>
+                  reactionMenuMessage &&
+                  void handlePickReaction(reactionMenuMessage, myReaction)
+                }
+              >
+                <Text style={styles.cancelReactionBtnText}>Hủy reaction</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </Pressable>
+      </Modal>
+
+      {/* Reaction viewer */}
+      <Modal
+        visible={!!reactionViewerMessage}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setReactionViewerMessage(null)}
+      >
+        <Pressable
+          style={styles.modalOverlay}
+          onPress={() => setReactionViewerMessage(null)}
+        >
+          <View style={[styles.popupSheet, { maxHeight: 360 }]}>
+            <View
+              style={{
+                flexDirection: "row",
+                justifyContent: "space-between",
+                alignItems: "center",
+                marginBottom: 12,
+              }}
+            >
+              <Text style={styles.popupTitle}>Cảm xúc tin nhắn</Text>
+              <TouchableOpacity onPress={() => setReactionViewerMessage(null)}>
+                <X size={18} color="#94a3b8" />
+              </TouchableOpacity>
+            </View>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {(reactionViewerMessage?.reactions || []).length === 0 ? (
+                <Text style={styles.emptyText}>Không có cảm xúc</Text>
+              ) : (
+                (reactionViewerMessage?.reactions || []).map(
+                  (reaction, index) => {
+                    const participant = activeConv?.participants.find(
+                      (p) => p._id === reaction.userId,
+                    );
+                    return (
+                      <View
+                        key={`${reaction.userId}-${reaction.emoji}-${index}`}
+                        style={[
+                          styles.popupAction,
+                          { justifyContent: "space-between" },
+                        ]}
+                      >
+                        <Text style={styles.popupActionText}>
+                          {participant?.displayName ||
+                          reaction.userId === user?.userId
+                            ? "Bạn"
+                            : "Người dùng"}
+                        </Text>
+                        <Text style={{ fontSize: 20 }}>{reaction.emoji}</Text>
+                      </View>
+                    );
+                  },
+                )
+              )}
+            </ScrollView>
+          </View>
+        </Pressable>
+      </Modal>
+
+      {/* Pinned messages modal */}
+      <Modal
+        visible={showPinnedModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowPinnedModal(false)}
+      >
+        <Pressable
+          style={styles.modalOverlay}
+          onPress={() => setShowPinnedModal(false)}
+        >
+          <View style={[styles.popupSheet, { maxHeight: 420 }]}>
+            <View
+              style={{
+                flexDirection: "row",
+                justifyContent: "space-between",
+                alignItems: "center",
+                marginBottom: 12,
+              }}
+            >
+              <Text style={styles.popupTitle}>Tin nhắn đã ghim</Text>
+              <TouchableOpacity onPress={() => setShowPinnedModal(false)}>
+                <X size={18} color="#94a3b8" />
+              </TouchableOpacity>
+            </View>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {pinnedMessages.length === 0 ? (
+                <Text style={styles.emptyText}>Chưa có tin ghim</Text>
+              ) : (
+                pinnedMessages.map((item) => (
+                  <TouchableOpacity
+                    key={item.messageId}
+                    style={styles.popupAction}
+                    onPress={() => {
+                      setShowPinnedModal(false);
+                      // Scroll to message
+                      const index = displayMessages.findIndex(
+                        (m) => m._id === item.messageId,
+                      );
+                      if (index >= 0)
+                        flatListRef.current?.scrollToIndex({
+                          index,
+                          animated: true,
+                          viewPosition: 0.5,
+                        });
+                    }}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.popupActionText} numberOfLines={2}>
+                        {getSafeMessagePreview(item.content || "Tin nhắn")}
+                      </Text>
+                      <Text
+                        style={{ color: "#64748b", fontSize: 11, marginTop: 2 }}
+                      >
+                        Ghim lúc {formatMessageDateTime(item.pinnedAt)}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                ))
+              )}
+            </ScrollView>
+          </View>
+        </Pressable>
+      </Modal>
+
       {/* Vote detail modal */}
       <Modal
         visible={!!voteDetailModal}
@@ -1823,30 +2941,23 @@ export default function ChatDetailScreen() {
                   {activeVotePoll.question}
                 </Text>
               )}
-
               <ScrollView
                 horizontal
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={styles.voteTabsRow}
               >
-                {(activeVotePoll?.options || []).map((option, idx) => {
+                {(activeVotePoll?.options || []).map((option) => {
                   const count = activeVotePoll?.votes.filter(
                     (v) => v.optionId === option.id,
                   ).length;
                   const isActive = option.id === activeVoteOptionId;
-
                   return (
                     <TouchableOpacity
                       key={option.id}
                       style={[styles.voteTab, isActive && styles.voteTabActive]}
                       onPress={() =>
                         setVoteDetailModal((prev) =>
-                          prev
-                            ? {
-                                ...prev,
-                                activeOptionId: option.id,
-                              }
-                            : prev,
+                          prev ? { ...prev, activeOptionId: option.id } : prev,
                         )
                       }
                     >
@@ -1863,7 +2974,6 @@ export default function ChatDetailScreen() {
                   );
                 })}
               </ScrollView>
-
               <ScrollView
                 style={styles.voteList}
                 contentContainerStyle={styles.voteListContent}
@@ -1893,7 +3003,6 @@ export default function ChatDetailScreen() {
                   </Text>
                 )}
               </ScrollView>
-
               {totalVotePages > 1 && (
                 <View style={styles.votePagerRow}>
                   <TouchableOpacity
@@ -1966,7 +3075,6 @@ export default function ChatDetailScreen() {
                   <Text style={styles.contextMenuText}>Sao chép</Text>
                 </TouchableOpacity>
               )}
-
             {contextMenu && !contextMenu.message.isRecalled && (
               <TouchableOpacity
                 style={styles.contextMenuItem}
@@ -1979,19 +3087,57 @@ export default function ChatDetailScreen() {
                 <Text style={styles.contextMenuText}>Trả lời</Text>
               </TouchableOpacity>
             )}
-
-            <TouchableOpacity
-              style={styles.contextMenuItem}
-              onPress={() => {
-                setForwardingMessage(contextMenu.message); // Gán tin nhắn cần forward
-                setIsForwardModalOpen(true); // Mở Modal chọn người nhận
-                setContextMenu(null); // Đóng Context Menu
-              }}
-            >
-              <Send size={16} color="#e2e8f0" />
-              <Text style={styles.contextMenuText}>Chuyển tiếp</Text>
-            </TouchableOpacity>
-
+            {contextMenu && !contextMenu.message.isRecalled && (
+              <TouchableOpacity
+                style={styles.contextMenuItem}
+                onPress={() => void handleTogglePin(contextMenu.message)}
+              >
+                {isPinnedMessage(contextMenu.message._id) ? (
+                  <PinOff size={16} color="#e2e8f0" />
+                ) : (
+                  <Pin size={16} color="#e2e8f0" />
+                )}
+                <Text style={styles.contextMenuText}>
+                  {isPinnedMessage(contextMenu.message._id)
+                    ? "Bỏ ghim"
+                    : "Ghim tin nhắn"}
+                </Text>
+              </TouchableOpacity>
+            )}
+            {contextMenu &&
+              contextMenu.message.senderId === user?.userId &&
+              !contextMenu.message.isRecalled &&
+              canRecall(contextMenu.message) && (
+                <TouchableOpacity
+                  style={styles.contextMenuItem}
+                  onPress={() => {
+                    const payload = decodeChatPayload(
+                      contextMenu.message.content,
+                    );
+                    const currentText =
+                      payload?.text || contextMenu.message.content || "";
+                    setEditInput(currentText);
+                    setEditingMessage(contextMenu.message);
+                    setContextMenu(null);
+                  }}
+                >
+                  <Pencil size={16} color="#e2e8f0" />
+                  <Text style={styles.contextMenuText}>Chỉnh sửa</Text>
+                </TouchableOpacity>
+              )}
+            {contextMenu && !contextMenu.message.isRecalled && (
+              <TouchableOpacity
+                style={styles.contextMenuItem}
+                onPress={() => {
+                  setForwardingMessage(contextMenu.message);
+                  setIsForwardModalOpen(true);
+                  setContextMenu(null);
+                }}
+              >
+                <Send size={16} color="#e2e8f0" />
+                <Text style={styles.contextMenuText}>Chuyển tiếp</Text>
+              </TouchableOpacity>
+            )}
             {contextMenu && canRecall(contextMenu.message) && (
               <TouchableOpacity
                 style={styles.contextMenuItem}
@@ -2001,7 +3147,6 @@ export default function ChatDetailScreen() {
                 <Text style={styles.contextMenuText}>Thu hồi</Text>
               </TouchableOpacity>
             )}
-
             {contextMenu && !contextMenu.message.isRecalled && (
               <TouchableOpacity
                 style={[styles.contextMenuItem, styles.contextMenuDanger]}
@@ -2016,7 +3161,8 @@ export default function ChatDetailScreen() {
           </View>
         </Pressable>
       </Modal>
-      {/* Modal Chuyển tiếp tin nhắn */}
+
+      {/* Forward modal */}
       <Modal
         visible={isForwardModalOpen && !!forwardingMessage}
         transparent
@@ -2045,7 +3191,6 @@ export default function ChatDetailScreen() {
                 <X size={24} color="#94a3b8" />
               </TouchableOpacity>
             </View>
-
             <TextInput
               placeholder="Tìm hội thoại..."
               placeholderTextColor="#64748b"
@@ -2053,7 +3198,6 @@ export default function ChatDetailScreen() {
               onChangeText={setForwardSearch}
               style={[styles.pollInput, { marginBottom: 15 }]}
             />
-
             <ScrollView
               style={{ flex: 1 }}
               showsVerticalScrollIndicator={false}
@@ -2076,7 +3220,6 @@ export default function ChatDetailScreen() {
                     conv.participants.find((p) => p._id !== user?.userId)
                       ?.displayName ||
                     "Đoạn chat";
-
                   return (
                     <TouchableOpacity
                       key={conv._id}
@@ -2088,13 +3231,11 @@ export default function ChatDetailScreen() {
                         },
                       ]}
                       onPress={() => {
-                        if (isSelected) {
+                        if (isSelected)
                           setSelectedConvs((prev) =>
-                            prev.filter((id) => id !== conv._id),
+                            prev.filter((cid) => cid !== conv._id),
                           );
-                        } else {
-                          setSelectedConvs((prev) => [...prev, conv._id]);
-                        }
+                        else setSelectedConvs((prev) => [...prev, conv._id]);
                       }}
                     >
                       <View
@@ -2129,7 +3270,6 @@ export default function ChatDetailScreen() {
                   );
                 })}
             </ScrollView>
-
             <View style={{ flexDirection: "row", gap: 12, marginTop: 20 }}>
               <TouchableOpacity
                 style={[styles.pollAddBtn, { flex: 1, alignItems: "center" }]}
@@ -2140,7 +3280,6 @@ export default function ChatDetailScreen() {
               >
                 <Text style={styles.pollAddBtnText}>Hủy</Text>
               </TouchableOpacity>
-
               <TouchableOpacity
                 disabled={selectedConvs.length === 0 || sending}
                 style={[
@@ -2155,7 +3294,7 @@ export default function ChatDetailScreen() {
                     setSelectedConvs([]);
                     setForwardingMessage(null);
                     Alert.alert("Thành công", "Đã chuyển tiếp tin nhắn");
-                  } catch (err) {
+                  } catch {
                     Alert.alert("Lỗi", "Không thể chuyển tiếp tin nhắn");
                   } finally {
                     setSending(false);
@@ -2171,7 +3310,103 @@ export default function ChatDetailScreen() {
         </View>
       </Modal>
 
-      {/* Conversation Info Panel */}
+      {/* Full-screen image preview */}
+      <Modal
+        visible={!!previewImageUrl}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          setPreviewImageUrl(null);
+          setPreviewImageLoading(false);
+          setPreviewImageError(null);
+        }}
+      >
+        <Pressable
+          style={styles.previewRoot}
+          onPress={() => {
+            setPreviewImageUrl(null);
+            setPreviewImageLoading(false);
+            setPreviewImageError(null);
+          }}
+        >
+          <Pressable
+            style={styles.previewCloseBtn}
+            onPress={() => {
+              setPreviewImageUrl(null);
+              setPreviewImageLoading(false);
+              setPreviewImageError(null);
+            }}
+          >
+            <X size={20} color="#f8fafc" />
+          </Pressable>
+          {!!previewImageUrl && (
+            <Pressable style={styles.previewImageWrap} onPress={() => {}}>
+              {previewImageLoading && !previewImageError && (
+                <ActivityIndicator size="large" color="#bfdbfe" />
+              )}
+              {!!previewImageError && (
+                <Text style={styles.previewErrorText}>{previewImageError}</Text>
+              )}
+              <Image
+                source={{ uri: previewImageUrl }}
+                style={styles.previewImage}
+                resizeMode="contain"
+                onLoadStart={() => {
+                  setPreviewImageLoading(true);
+                  setPreviewImageError(null);
+                }}
+                onLoadEnd={() => setPreviewImageLoading(false)}
+                onError={() => {
+                  setPreviewImageLoading(false);
+                  setPreviewImageError("Không tải được ảnh");
+                }}
+              />
+            </Pressable>
+          )}
+        </Pressable>
+      </Modal>
+
+      {/* Add member modal */}
+      {activeConv?.group && (
+        <AddMemberModal
+          visible={showAddMember}
+          onClose={() => setShowAddMember(false)}
+          conversationId={id as string}
+          currentParticipantIds={activeConv.participants.map((p) => p._id)}
+          onAdd={async (targetUserId) => {
+            try {
+              console.log("Adding user:", targetUserId, "to convo:", id);
+              const result = await addMemberToGroup(id as string, targetUserId);
+
+              // Nếu thành công
+              if (result) {
+                if (result.needsApproval) {
+                  Alert.alert(
+                    "Thông báo",
+                    "Yêu cầu đã gửi, chờ trưởng/phó nhóm duyệt",
+                  );
+                } else {
+                  // CẬP NHẬT LẠI STORE NGAY LẬP TỨC
+                  // Giả sử API trả về object member mới, nếu không Khoa cần fetch lại convo
+                  // fetchConversations();
+                  Alert.alert("Thành công", "Đã thêm thành viên vào nhóm");
+                }
+                setShowAddMember(false);
+              }
+            } catch (error: any) {
+              console.error(
+                "Lỗi API thêm thành viên:",
+                error.response?.data || error.message,
+              );
+              const errorMsg =
+                error.response?.data?.message || "Không thể thêm thành viên";
+              Alert.alert("Lỗi", errorMsg);
+            }
+          }}
+        />
+      )}
+
+      {/* Conversation Info Panels */}
       {!activeConv?.group && activeConv && (
         <ConversationInfoPanel
           visible={showInfoPanel}
@@ -2181,8 +3416,6 @@ export default function ChatDetailScreen() {
           currentUserId={user?.userId}
         />
       )}
-
-      {/* Group Conversation Info Panel */}
       {activeConv?.group && activeConv && (
         <GroupConversationInfoPanel
           visible={showInfoPanel}
@@ -2190,6 +3423,51 @@ export default function ChatDetailScreen() {
           conversation={activeConv}
           messages={currentMessages}
           currentUserId={user?.userId}
+          onUpdateSettings={async (settings) => {
+            if (!activeConv._id) return;
+            try {
+              await chatService.updateGroupSettings(activeConv._id, settings);
+              console.log("Cập nhật thành công");
+            } catch {
+              Alert.alert("Lỗi", "Không thể cập nhật cài đặt nhóm");
+            }
+          }}
+          // TRUYỀN THÊM CÁC HÀM NÀY:
+          // onLeaveGroup={() => handleLeaveGroup()}
+          // onDissolveGroup={() => handleDissolve()}
+          // onUpdateSettings={(s) => handleUpdateGroupSettings(s)}
+          onReviewRequest={(id, action) =>
+            reviewJoinRequest(activeConv._id, id, action)
+          }
+          pendingRequests={joinRequests[activeConv._id] || []}
+          onUpdateMemberRole={async (targetUserId, role) => {
+            if (!activeConv._id) return;
+            try {
+              await chatService.updateMemberRole(
+                activeConv._id,
+                targetUserId,
+                role,
+              );
+            } catch (error) {
+              console.error("Lỗi khi cập nhật role:", error);
+              alert("Không thể cập nhật quyền thành viên");
+            }
+          }}
+          onRemoveMember={async (targetUserId) => {
+            if (!activeConv._id) return;
+            try {
+              await chatService.removeMember(activeConv._id, targetUserId);
+              // Sau khi xóa thành công, fetch lại danh sách để cập nhật UI
+              await fetchConversations();
+              console.log("Đã xóa thành viên thành công");
+            } catch (error: any) {
+              console.error("Lỗi khi xóa thành viên:", error);
+              Alert.alert(
+                "Lỗi",
+                error?.response?.data?.message || "Không thể xóa thành viên",
+              );
+            }
+          }}
         />
       )}
     </View>
@@ -2890,45 +4168,4 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   contextMenuText: { color: "#e2e8f0", fontSize: 14 },
-  wrapper: {
-    backgroundColor: "#1a2744",
-    borderBottomWidth: 1,
-    borderBottomColor: "rgba(148,163,184,0.12)",
-  },
-  row: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-  },
-  iconCircle: {
-    width: 32, height: 32, borderRadius: 16,
-    backgroundColor: "rgba(37,99,235,0.15)",
-    alignItems: "center", justifyContent: "center",
-  },
-  label: { fontSize: 11, color: "#94a3b8", marginBottom: 1 },
-  preview: { fontSize: 13, color: "#cbd5e1" },
-  sender: { color: "#e2e8f0", fontWeight: "600" },
-  badge: {
-    borderWidth: 1,
-    borderColor: "rgba(96,165,250,0.35)",
-    backgroundColor: "rgba(37,99,235,0.12)",
-    borderRadius: 20,
-    paddingHorizontal: 10,
-    paddingVertical: 3,
-  },
-  badgeText: { color: "#60a5fa", fontSize: 12, fontWeight: "600" },
-  listHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingHorizontal: 14,
-    paddingTop: 8,
-    paddingBottom: 4,
-    borderTopWidth: 1,
-    borderTopColor: "rgba(148,163,184,0.1)",
-  },
-  listTitle: { color: "#f1f5f9", fontWeight: "600", fontSize: 13 },
-  collapseText: { color: "#60a5fa", fontSize: 12 },
 });

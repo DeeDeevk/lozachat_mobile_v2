@@ -1,4 +1,5 @@
 import api from "@/lib/axios";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 interface UserProfile {
   _id: string;
@@ -24,28 +25,50 @@ interface UpdateProfileResponse {
   user: UserProfile;
 }
 
-export const userService = {
-  updateMe: async (payload: UpdateProfilePayload): Promise<UpdateProfileResponse> => {
-    console.log('Calling updateMe with:', payload);
-    console.log('Base URL:', api.defaults.baseURL);
-    console.log('Headers:', api.defaults.headers);
-    const res = await api.put("/users/me", payload);
-    console.log('Response:', res.status, res.data);
-    return res.data;
-    },
+const getAuthHeader = async () => {
+  const token = await AsyncStorage.getItem("accessToken");
+  return {
+    Authorization: `Bearer ${token}`,
+  };
+};
 
-  uploadAvatar: async (file: File): Promise<{ message: string; user: UserProfile }> => {
+export const userService = {
+  updateMe: async (
+    payload: UpdateProfilePayload,
+  ): Promise<UpdateProfileResponse> => {
+    const headers = await getAuthHeader();
+
+    const res = await api.put("/users/me", payload, { headers });
+    return res.data;
+  },
+
+  uploadAvatar: async (
+    file: any, // React Native file
+  ): Promise<{ message: string; user: UserProfile }> => {
+    const headers = await getAuthHeader();
+
     const formData = new FormData();
-    formData.append("avatar", file);
+
+    formData.append("avatar", {
+      uri: file.uri,
+      name: file.fileName || "avatar.jpg",
+      type: file.type || "image/jpeg",
+    } as any);
 
     const res = await api.post("/users/avatar", formData, {
-        headers: { "Content-Type": "multipart/form-data" },
+      headers: {
+        ...headers,
+        "Content-Type": "multipart/form-data",
+      },
     });
+
     return res.data;
   },
 
   deleteMe: async (): Promise<{ message: string }> => {
-    const res = await api.delete("/users/me");
+    const headers = await getAuthHeader();
+
+    const res = await api.delete("/users/me", { headers });
     return res.data;
   },
 };
