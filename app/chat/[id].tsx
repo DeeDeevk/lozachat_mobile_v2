@@ -514,6 +514,132 @@ export default function ChatDetailScreen() {
   // Info panel
   const [showInfoPanel, setShowInfoPanel] = useState(false);
 
+  // Group handlers
+  const chatStore = useChatStore();
+  const handleDissolveGroup = async () => {
+    Alert.alert(
+      "Giải tán nhóm",
+      "Tất cả thành viên sẽ mất lịch sử trò chuyện. Hành động này không thể hoàn tác.",
+      [
+        { text: "Hủy" },
+        {
+          text: "Giải tán",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await chatStore.dissolveGroup(conversationId);
+              setShowInfoPanel(false);
+              router.replace("/(tabs)"); // ✅ navigate về danh sách chat
+            } catch (error) {
+              Alert.alert("Lỗi", "Không thể giải tán nhóm");
+            }
+          },
+        },
+      ],
+    );
+  };
+
+  const handleLeaveGroup = async () => {
+    const isOwner =
+      activeConv?.participants.find((p) => p._id === user?.userId)?.role ===
+      "owner";
+
+    if (isOwner) {
+      const otherMembers =
+        activeConv?.participants.filter((p) => p._id !== user?.userId) ?? [];
+
+      if (otherMembers.length === 0) {
+        // Không còn thành viên nào → chỉ có thể giải tán
+        Alert.alert(
+          "Không thể rời nhóm",
+          "Bạn là thành viên duy nhất. Hãy giải tán nhóm thay thế.",
+          [{ text: "OK" }],
+        );
+        return;
+      }
+
+      // Tạo danh sách lựa chọn từ các thành viên còn lại
+      const memberButtons = otherMembers.map((m) => ({
+        text: `${m.displayName}${m.role === "admin" ? " (Phó nhóm)" : ""}`,
+        onPress: async () => {
+          Alert.alert(
+            "Xác nhận",
+            `Trao quyền trưởng nhóm cho ${m.displayName} và rời nhóm?`,
+            [
+              { text: "Hủy" },
+              {
+                text: "Xác nhận",
+                style: "destructive",
+                onPress: async () => {
+                  try {
+                    await chatStore.leaveGroup(conversationId, m._id);
+                    setShowInfoPanel(false);
+                    setTimeout(() => {
+                      router.replace("/(tabs)");
+                    }, 200);
+                  } catch (error) {
+                    Alert.alert("Lỗi", "Không thể rời nhóm");
+                  }
+                },
+              },
+            ],
+          );
+        },
+      }));
+
+      Alert.alert(
+        "Chọn trưởng nhóm mới",
+        "Bạn là trưởng nhóm. Hãy chọn người để trao quyền trước khi rời.",
+        [...memberButtons, { text: "Hủy", style: "cancel" }],
+      );
+    } else {
+      Alert.alert(
+        "Rời khỏi nhóm",
+        "Bạn sẽ không còn nhận được tin nhắn từ nhóm này. Bạn có chắc muốn rời không?",
+        [
+          { text: "Hủy" },
+          {
+            text: "Rời nhóm",
+            style: "destructive",
+            onPress: async () => {
+              try {
+                await chatStore.leaveGroup(conversationId);
+                setShowInfoPanel(false);
+                setTimeout(() => {
+                  router.replace("/(tabs)");
+                }, 100);
+              } catch (error) {
+                Alert.alert("Lỗi", "Không thể rời nhóm");
+              }
+            },
+          },
+        ],
+      );
+    }
+  };
+
+  const handleDeleteConversationForMe = async () => {
+    Alert.alert(
+      "Xóa lịch sử",
+      "Chỉ xóa tin nhắn ở phía bạn. Nhóm vẫn tồn tại.",
+      [
+        { text: "Hủy" },
+        {
+          text: "Xóa",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await chatStore.deleteConversationForMe(conversationId);
+              setShowInfoPanel(false);
+            } catch (error) {
+              Alert.alert("Lỗi", "Không thể xóa lịch sử");
+            }
+          },
+        },
+      ],
+    );
+  };
+
   // LozaBot
   const [showLozaBotSuggestions, setShowLozaBotSuggestions] = useState(false);
 
@@ -3386,6 +3512,9 @@ export default function ChatDetailScreen() {
           conversation={activeConv}
           messages={currentMessages}
           currentUserId={user?.userId}
+          onDissolveGroup={handleDissolveGroup}
+          onLeaveGroup={handleLeaveGroup}
+          onDeleteConversation={handleDeleteConversationForMe}
           onUpdateSettings={async (settings) => {
             if (!activeConv._id) return;
             try {
@@ -3403,6 +3532,7 @@ export default function ChatDetailScreen() {
             reviewJoinRequest(activeConv._id, id, action)
           }
           pendingRequests={joinRequests[activeConv._id] || []}
+          isAdminOrOwner={isAdminOrOwner}
           onUpdateMemberRole={async (targetUserId, role) => {
             if (!activeConv._id) return;
             try {
@@ -3413,7 +3543,7 @@ export default function ChatDetailScreen() {
               );
             } catch (error) {
               console.error("Lỗi khi cập nhật role:", error);
-              alert("Không thể cập nhật quyền thành viên");
+              Alert.alert("Lỗi", "Không thể cập nhật quyền thành viên");
             }
           }}
           onRemoveMember={async (targetUserId) => {

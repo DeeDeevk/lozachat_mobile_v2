@@ -350,68 +350,55 @@ export default function GroupConversationInfoPanel({
           {/* Pending Requests */}
           {/* Pending Requests - Chỉ hiện cho Admin/Owner */}
           {isAdminOrOwner && uniquePendingRequests.length > 0 && (
-            <View
-              style={[
-                styles.sectionWrap,
-                { backgroundColor: "rgba(59,130,246,0.05)" },
-              ]}
+            <Section
+              title="Chờ duyệt"
+              count={uniquePendingRequests.length}
+              isOpen={true}
+              onToggle={() => {}}
             >
-              <Section
-                title="Chờ duyệt"
-                count={uniquePendingRequests.length}
-                isOpen={true} // Nên để mặc định mở để Admin dễ thấy
-                onToggle={() => {}}
-              >
-                {uniquePendingRequests.map((req) => (
-                  <View key={req._id} style={styles.requestCard}>
-                    <View style={styles.requestInfo}>
-                      <Text style={styles.requestName}>
-                        {req.invitedUserId?.displayName || "Người dùng mới"}
-                      </Text>
-                      <Text style={styles.requestSub}>
-                        mời bởi {req.invitedBy?.displayName || "Admin"}
-                      </Text>
-                    </View>
-
-                    <View style={styles.requestActions}>
-                      <TouchableOpacity
-                        onPress={() => handleReview(req._id, "approved")}
-                        style={[
-                          styles.approveBtn,
-                          {
-                            backgroundColor: "rgba(16,185,129,0.1)",
-                            padding: 8,
-                            borderRadius: 8,
-                          },
-                        ]}
-                        disabled={processingIds.includes(req._id)}
-                      >
-                        {processingIds.includes(req._id) ? (
-                          <ActivityIndicator size="small" color="#10b981" />
-                        ) : (
-                          <UserCheck size={20} color="#10b981" />
-                        )}
-                      </TouchableOpacity>
-
-                      <TouchableOpacity
-                        onPress={() => handleReview(req._id, "rejected")}
-                        style={[
-                          styles.rejectBtn,
-                          {
-                            backgroundColor: "rgba(239,68,68,0.1)",
-                            padding: 8,
-                            borderRadius: 8,
-                          },
-                        ]}
-                        disabled={processingIds.includes(req._id)}
-                      >
-                        <UserX size={20} color="#ef4444" />
-                      </TouchableOpacity>
-                    </View>
+              {uniquePendingRequests.map((req) => (
+                <View key={req._id} style={styles.requestCard}>
+                  <View style={styles.requestAvatar}>
+                    <Text style={styles.avatarTxt}>
+                      {(req.invitedUserId?.displayName || "N")[0].toUpperCase()}
+                    </Text>
                   </View>
-                ))}
-              </Section>
-            </View>
+
+                  <View style={styles.requestInfo}>
+                    <Text style={styles.requestName} numberOfLines={1}>
+                      {req.invitedUserId?.displayName || "Người dùng mới"}
+                    </Text>
+                    <Text style={styles.requestSub} numberOfLines={1}>
+                      mời bởi {req.invitedBy?.displayName || "Admin"}
+                    </Text>
+                  </View>
+
+                  <View style={styles.requestActions}>
+                    {/* Nút Chấp nhận - Tông Xanh Dương */}
+                    <TouchableOpacity
+                      onPress={() => handleReview(req._id, "approved")}
+                      style={[styles.actionIconButton, styles.approveBlueBg]}
+                      disabled={processingIds.includes(req._id)}
+                    >
+                      {processingIds.includes(req._id) ? (
+                        <ActivityIndicator size="small" color="#3b82f6" />
+                      ) : (
+                        <UserCheck size={18} color="#60a5fa" />
+                      )}
+                    </TouchableOpacity>
+
+                    {/* Nút Từ chối - Tông Cam/Hổ phách */}
+                    <TouchableOpacity
+                      onPress={() => handleReview(req._id, "rejected")}
+                      style={[styles.actionIconButton, styles.rejectAmberBg]}
+                      disabled={processingIds.includes(req._id)}
+                    >
+                      <UserX size={18} color="#fbbf24" />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ))}
+            </Section>
           )}
 
           {/* Members Section */}
@@ -693,6 +680,68 @@ export default function GroupConversationInfoPanel({
 }
 
 const styles = StyleSheet.create({
+  actionIconButton: {
+    padding: 10,
+    borderRadius: 10,
+    justifyContent: "center",
+    alignItems: "center",
+    minWidth: 40,
+  },
+  // Màu Xanh dương hiện đại cho Chấp nhận
+  approveBlueBg: {
+    backgroundColor: "rgba(59, 130, 246, 0.15)", // Blue 500 với 15% opacity
+    borderWidth: 1,
+    borderColor: "rgba(59, 130, 246, 0.3)",
+  },
+  // Màu Cam/Hổ phách cho Từ chối
+  rejectAmberBg: {
+    backgroundColor: "rgba(251, 191, 36, 0.12)", // Amber 400 với 12% opacity
+    borderWidth: 1,
+    borderColor: "rgba(251, 191, 36, 0.25)",
+  },
+  requestCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#1e293b", // Tiệp màu với SearchInput và các thành phần khác
+    padding: 12,
+    borderRadius: 12,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: "rgba(59,130,246,0.1)", // Tạo viền xanh nhẹ để phân biệt vùng chờ duyệt
+  },
+  requestAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#3b82f6",
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 12,
+  },
+  requestInfo: {
+    flex: 1,
+    marginRight: 8,
+  },
+  requestName: {
+    color: "#f1f5f9",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  requestSub: {
+    color: "#94a3b8",
+    fontSize: 11,
+    marginTop: 2,
+  },
+  requestActions: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  approveBg: {
+    backgroundColor: "rgba(16,185,129,0.15)",
+  },
+  rejectBg: {
+    backgroundColor: "rgba(239,68,68,0.15)",
+  },
   menuItem: {
     paddingVertical: 14,
     borderBottomWidth: 1,
@@ -849,8 +898,6 @@ const styles = StyleSheet.create({
   roleText: { fontSize: 10, fontWeight: "700" },
   ownerText: { color: "#facc15" },
   adminText: { color: "#94a3b8" },
-  mediaGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  mediaThumb: { width: (width - 48) / 3, aspectRatio: 1, borderRadius: 12 },
   settingsArea: {
     padding: 18,
     borderBottomWidth: 1,
@@ -865,18 +912,6 @@ const styles = StyleSheet.create({
   settingRow: { flexDirection: "row", alignItems: "center" },
   settingLabel: { color: "#f1f5f9", fontSize: 14 },
   settingSubLabel: { color: "#64748b", fontSize: 11, marginTop: 2 },
-  requestCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "rgba(15,23,42,0.6)",
-    padding: 12,
-    borderRadius: 12,
-    marginBottom: 10,
-  },
-  requestInfo: { flex: 1 },
-  requestName: { color: "white", fontSize: 14, fontWeight: "600" },
-  requestSub: { color: "#64748b", fontSize: 11 },
-  requestActions: { flexDirection: "row", gap: 12 },
   dangerZone: { padding: 16, gap: 12 },
   dangerBtn: {
     flexDirection: "row",
