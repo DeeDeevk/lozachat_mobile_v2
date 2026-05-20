@@ -33,6 +33,8 @@ interface AuthState {
   userProfile: UserProfile | null;
   loading: boolean;
   error: string | null;
+  forceLogoutMessage: string | null;
+  clearForceLogout: () => void;
   signIn: (data: SignInData) => Promise<boolean>;
   signUp: (data: SignUpData) => Promise<boolean>;
   signOut: () => Promise<void>;
@@ -52,9 +54,11 @@ export const useAuthStore = create<AuthState>()(
       userProfile: null,
       loading: false,
       error: null,
+      forceLogoutMessage: null,
 
       setAccessToken: (accessToken) => set({ accessToken }),
       setUserProfile: (user) => set({ userProfile: user }),
+      clearForceLogout: () => set({ forceLogoutMessage: null }),
 
       signIn: async (data) => {
         set({ loading: true, error: null });
@@ -225,6 +229,7 @@ export const useAuthStore = create<AuthState>()(
           user: null,
           loading: false,
           userProfile: null,
+          forceLogoutMessage: null,
         });
         AsyncStorage.removeItem("auth-storage");
       },
@@ -236,6 +241,7 @@ export const useAuthStore = create<AuthState>()(
         user: state.user,
         accessToken: state.accessToken,
         userProfile: state.userProfile,
+        forceLogoutMessage: state.forceLogoutMessage,
       }),
     },
   ),

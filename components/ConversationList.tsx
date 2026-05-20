@@ -412,14 +412,18 @@ const styles = StyleSheet.create({
   tabs: {
     flexDirection: "row",
     gap: 6,
-    paddingHorizontal: 16,
+    paddingHorizontal: 8,
     paddingBottom: 8,
+    justifyContent: "space-between",
   },
   tab: {
+    flex: 1,
     paddingHorizontal: 12,
     paddingVertical: 5,
     borderRadius: 20,
     backgroundColor: "rgba(255,255,255,0.05)",
+    justifyContent: "center",
+    alignItems: "center",
   },
   tabActive: {
     backgroundColor: "rgba(59,130,246,0.2)",

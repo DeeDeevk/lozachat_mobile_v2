@@ -16,12 +16,13 @@ export interface SignUpData {
 }
 
 export const authService = {
-  signIn: async (data: SignInData) => {
+  signIn: async (data: SignInData, forceLogin = true) => {
     const deviceId = await getDeviceId(); // thêm dòng này
 
     const res = await api.post("/auth/signin", {
       ...data,
       deviceId,
+      forceLogin, // ← Gửi forceLogin để backend biết force logout session cũ
     });
     console.log("signIn response:", res.data);
 
