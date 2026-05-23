@@ -1,3 +1,4 @@
+import type { UploadAttachmentResponse } from "@/services/chatService";
 import type { Socket } from "socket.io-client";
 import type {
   Conversation,
@@ -5,7 +6,6 @@ import type {
   MessageReaction,
   PinnedMessage,
 } from "./chat";
-import type { UploadAttachmentResponse } from "@/services/chatService";
 
 export interface GroupJoinRequest {
   _id: string;
@@ -155,6 +155,7 @@ export interface ChatState {
     conversationId: string,
     member: Conversation["participants"][0],
   ) => void;
+  removeJoinRequest: (requestId: string) => void;
 }
 
 export interface FriendUpdateEvent {
