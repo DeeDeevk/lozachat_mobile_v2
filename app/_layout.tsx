@@ -1,3 +1,5 @@
+import AppInit from "@/components/AppInit";
+import ForceLogoutDialog from "@/components/ForceLogoutDialog";
 import { Stack } from "expo-router";
 import { useEffect } from "react";
 import Toast from "react-native-toast-message";
@@ -6,6 +8,8 @@ export default function RootLayout() {
 
   return (
     <>
+    <AppInit />
+      <ForceLogoutDialog />
       <Stack screenOptions={{ headerShown: false }}>
         {/* Nhóm không cần login (SignIn, SignUp, Forgot) */}
         <Stack.Screen name="(auth)" options={{ headerShown: false }} />

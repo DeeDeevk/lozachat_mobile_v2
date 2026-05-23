@@ -83,6 +83,8 @@ import {
 import { styles } from "../style/chatstyle";
 import { chatService } from "@/services/chatService";
 import { useFriendStore } from "@/stores/useFriendStore";
+import InputAreaGuard from "@/components/InputAreaGuard";
+import FriendActionButton from "@/components/FriendActionButton";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type PopupType = "media" | "sticker" | "audio" | "poll" | "theme" | null;
@@ -603,11 +605,12 @@ export default function ChatDetailScreen() {
             style: "destructive",
             onPress: async () => {
               try {
-                await chatStore.leaveGroup(conversationId);
+                // ✅ Navigate ngay, không cần setTimeout
                 setShowInfoPanel(false);
-                setTimeout(() => {
-                  router.replace("/(tabs)");
-                }, 100);
+                router.replace("/(tabs)");
+
+                // Gọi store sau — chạy nền, user không cảm nhận được delay
+                await chatStore.leaveGroup(conversationId);
               } catch (error) {
                 Alert.alert("Lỗi", "Không thể rời nhóm");
               }
@@ -620,8 +623,8 @@ export default function ChatDetailScreen() {
 
   const handleDeleteConversationForMe = async () => {
     Alert.alert(
-      "Xóa lịch sử",
-      "Chỉ xóa tin nhắn ở phía bạn. Nhóm vẫn tồn tại.",
+      "Xóa lịch sử trò chuyện",
+      "Bạn chắc chắn muốn xóa tất cả tin nhắn trong cuộc trò chuyện này? Hành động này không thể hoàn tác.",
       [
         { text: "Hủy" },
         {
@@ -645,8 +648,6 @@ export default function ChatDetailScreen() {
 
   const conversationId =
     typeof id === "string" ? id : Array.isArray(id) ? String(id[0]) : undefined;
-
-  if (!conversationId) return null;
 
   const {
     messages,
@@ -892,6 +893,14 @@ export default function ChatDetailScreen() {
     if (!id || !activeConv?.chatThemeId) return;
     setThemeForConversation(id as string, activeConv.chatThemeId);
   }, [activeConv?.chatThemeId, id, setThemeForConversation]);
+
+  useEffect(() => {
+    if (!conversationId) return;
+    const stillExists = conversations.some((c) => c._id === conversationId);
+    if (!stillExists) {
+      router.replace("/(tabs)");
+    }
+  }, [conversations, conversationId]);
 
   useEffect(() => {
     if (!id || !socket) return;
@@ -2001,6 +2010,8 @@ export default function ChatDetailScreen() {
     ],
   );
 
+  if (!conversationId) return null;
+
   // ─── Render ──────────────────────────────────────────────────────────────────
   const myReaction = reactionMenuMessage
     ? (reactionMenuMessage.reactions || []).find(
@@ -2253,6 +2264,12 @@ export default function ChatDetailScreen() {
           </View>
         </View>
 
+        {!activeConv?.group && activeConv?.isStranger && otherUser?._id && (
+          <FriendActionButton
+            userId={otherUser._id}
+            displayName={otherUser.displayName}
+          />
+        )}
         {/* Pinned messages banner */}
         {pinnedMessages.length > 0 && (
           <TouchableOpacity
@@ -2381,188 +2398,192 @@ export default function ChatDetailScreen() {
           behavior={Platform.OS === "ios" ? "padding" : undefined}
           keyboardVerticalOffset={Platform.OS === "ios" ? 10 : 0}
         >
-          <View style={styles.inputWrapper}>
-            {/* Reply banner */}
-            {replyingTo && (
-              <View style={styles.replyBanner}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.replyBannerName}>
-                    Đang trả lời{" "}
-                    {getSenderName(
-                      replyingTo,
-                      user?.userId,
-                      activeConv?.participants || [],
-                    )}
-                  </Text>
-                  <Text style={styles.replyBannerPreview} numberOfLines={1}>
-                    {getSafeMessagePreview(replyingTo.content)}
-                  </Text>
-                </View>
-                <TouchableOpacity onPress={() => setReplyingTo(null)}>
-                  <X size={16} color="#e2e8f0" />
-                </TouchableOpacity>
-              </View>
-            )}
-
-            {/* Edit banner */}
-            {editingMessage && (
-              <View style={styles.editBanner}>
-                <View
-                  style={{
-                    flexDirection: "row",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    marginBottom: 6,
-                  }}
-                >
-                  <Text style={styles.editBannerTitle}>
-                    ✏️ Đang chỉnh sửa tin nhắn
-                  </Text>
-                  <TouchableOpacity
-                    onPress={() => {
-                      setEditingMessage(null);
-                      setEditInput("");
-                    }}
-                  >
-                    <X size={14} color="#94a3b8" />
+          <InputAreaGuard activeConversation={activeConv} user={user}>
+            <View style={styles.inputWrapper}>
+              {/* Reply banner */}
+              {replyingTo && (
+                <View style={styles.replyBanner}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.replyBannerName}>
+                      Đang trả lời{" "}
+                      {getSenderName(
+                        replyingTo,
+                        user?.userId,
+                        activeConv?.participants || [],
+                      )}
+                    </Text>
+                    <Text style={styles.replyBannerPreview} numberOfLines={1}>
+                      {getSafeMessagePreview(replyingTo.content)}
+                    </Text>
+                  </View>
+                  <TouchableOpacity onPress={() => setReplyingTo(null)}>
+                    <X size={16} color="#e2e8f0" />
                   </TouchableOpacity>
                 </View>
-                <View style={{ flexDirection: "row", gap: 8 }}>
-                  <TextInput
-                    style={[
-                      styles.textInput,
-                      { flex: 1, borderColor: "rgba(234,179,8,.4)" },
-                    ]}
-                    value={editInput}
-                    onChangeText={setEditInput}
-                    autoFocus
-                    onSubmitEditing={() => void handleEdit()}
-                    returnKeyType="done"
-                  />
-                  <TouchableOpacity
-                    onPress={() => void handleEdit()}
-                    disabled={!editInput.trim()}
+              )}
+
+              {/* Edit banner */}
+              {editingMessage && (
+                <View style={styles.editBanner}>
+                  <View
                     style={{
-                      backgroundColor: editInput.trim() ? "#ca8a04" : "#334155",
-                      borderRadius: 10,
-                      paddingHorizontal: 14,
-                      justifyContent: "center",
+                      flexDirection: "row",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      marginBottom: 6,
                     }}
                   >
-                    <Text
-                      style={{
-                        color: "white",
-                        fontWeight: "600",
-                        fontSize: 13,
+                    <Text style={styles.editBannerTitle}>
+                      ✏️ Đang chỉnh sửa tin nhắn
+                    </Text>
+                    <TouchableOpacity
+                      onPress={() => {
+                        setEditingMessage(null);
+                        setEditInput("");
                       }}
                     >
-                      Lưu
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            )}
-
-            {/* LozaBot suggestions */}
-            {showLozaBotSuggestions && (
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                style={{ marginBottom: 8 }}
-              >
-                <View style={{ flexDirection: "row", gap: 8 }}>
-                  {LOZA_BOT_SUGGESTIONS.map((s) => (
-                    <TouchableOpacity
-                      key={s}
-                      onPress={() => setInput(`@${LOZA_BOT_NAME} ${s}`)}
-                      style={styles.lozaSuggestion}
-                    >
-                      <Text style={styles.lozaSuggestionText}>{s}</Text>
+                      <X size={14} color="#94a3b8" />
                     </TouchableOpacity>
-                  ))}
+                  </View>
+                  <View style={{ flexDirection: "row", gap: 8 }}>
+                    <TextInput
+                      style={[
+                        styles.textInput,
+                        { flex: 1, borderColor: "rgba(234,179,8,.4)" },
+                      ]}
+                      value={editInput}
+                      onChangeText={setEditInput}
+                      autoFocus
+                      onSubmitEditing={() => void handleEdit()}
+                      returnKeyType="done"
+                    />
+                    <TouchableOpacity
+                      onPress={() => void handleEdit()}
+                      disabled={!editInput.trim()}
+                      style={{
+                        backgroundColor: editInput.trim()
+                          ? "#ca8a04"
+                          : "#334155",
+                        borderRadius: 10,
+                        paddingHorizontal: 14,
+                        justifyContent: "center",
+                      }}
+                    >
+                      <Text
+                        style={{
+                          color: "white",
+                          fontWeight: "600",
+                          fontSize: 13,
+                        }}
+                      >
+                        Lưu
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
                 </View>
-              </ScrollView>
-            )}
+              )}
 
-            {/* Action icons row */}
-            <View style={styles.actionsRow}>
-              <TouchableOpacity
-                style={styles.actionIcon}
-                onPress={() =>
-                  setActivePopup((p) => (p === "media" ? null : "media"))
-                }
-              >
-                <ImageIcon size={20} color="#94a3b8" />
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.actionIcon}
-                onPress={() =>
-                  setActivePopup((p) => (p === "sticker" ? null : "sticker"))
-                }
-              >
-                <Sticker size={20} color="#94a3b8" />
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.actionIcon}
-                onPress={() =>
-                  setActivePopup((p) => (p === "audio" ? null : "audio"))
-                }
-              >
-                <Mic size={20} color={isRecording ? "#fca5a5" : "#94a3b8"} />
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.actionIcon}
-                onPress={() =>
-                  setActivePopup((p) => (p === "poll" ? null : "poll"))
-                }
-              >
-                <BarChart3 size={20} color="#94a3b8" />
-              </TouchableOpacity>
-            </View>
-
-            {/* Text input row */}
-            <View style={styles.inputRow}>
-              <TextInput
-                style={styles.textInput}
-                placeholder="Nhập tin nhắn... hoặc @LozaBot"
-                placeholderTextColor="#64748b"
-                value={input}
-                onChangeText={(text) => {
-                  setInput(text);
-                  if (socket?.connected && id) {
-                    socket.emit("typing", { conversationId: id });
-                    if (typingTimeoutRef.current)
-                      clearTimeout(typingTimeoutRef.current);
-                    typingTimeoutRef.current = setTimeout(() => {
-                      socket.emit("stop-typing", { conversationId: id });
-                    }, 1200);
-                  }
-                }}
-                multiline
-                textAlignVertical="center"
-                onSubmitEditing={handleSend}
-              />
-              <TouchableOpacity
-                onPress={handleSend}
-                disabled={!input.trim() || sending}
-              >
-                <LinearGradient
-                  colors={
-                    input.trim() && !sending
-                      ? ["#1d4ed8", "#2563eb"]
-                      : ["#334155", "#475569"]
-                  }
-                  style={styles.sendBtn}
+              {/* LozaBot suggestions */}
+              {showLozaBotSuggestions && (
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  style={{ marginBottom: 8 }}
                 >
-                  {sending ? (
-                    <ActivityIndicator size="small" color="white" />
-                  ) : (
-                    <Send color="white" size={18} />
-                  )}
-                </LinearGradient>
-              </TouchableOpacity>
+                  <View style={{ flexDirection: "row", gap: 8 }}>
+                    {LOZA_BOT_SUGGESTIONS.map((s) => (
+                      <TouchableOpacity
+                        key={s}
+                        onPress={() => setInput(`@${LOZA_BOT_NAME} ${s}`)}
+                        style={styles.lozaSuggestion}
+                      >
+                        <Text style={styles.lozaSuggestionText}>{s}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </ScrollView>
+              )}
+
+              {/* Action icons row */}
+              <View style={styles.actionsRow}>
+                <TouchableOpacity
+                  style={styles.actionIcon}
+                  onPress={() =>
+                    setActivePopup((p) => (p === "media" ? null : "media"))
+                  }
+                >
+                  <ImageIcon size={20} color="#94a3b8" />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.actionIcon}
+                  onPress={() =>
+                    setActivePopup((p) => (p === "sticker" ? null : "sticker"))
+                  }
+                >
+                  <Sticker size={20} color="#94a3b8" />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.actionIcon}
+                  onPress={() =>
+                    setActivePopup((p) => (p === "audio" ? null : "audio"))
+                  }
+                >
+                  <Mic size={20} color={isRecording ? "#fca5a5" : "#94a3b8"} />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.actionIcon}
+                  onPress={() =>
+                    setActivePopup((p) => (p === "poll" ? null : "poll"))
+                  }
+                >
+                  <BarChart3 size={20} color="#94a3b8" />
+                </TouchableOpacity>
+              </View>
+
+              {/* Text input row */}
+              <View style={styles.inputRow}>
+                <TextInput
+                  style={styles.textInput}
+                  placeholder="Nhập tin nhắn... hoặc @LozaBot"
+                  placeholderTextColor="#64748b"
+                  value={input}
+                  onChangeText={(text) => {
+                    setInput(text);
+                    if (socket?.connected && id) {
+                      socket.emit("typing", { conversationId: id });
+                      if (typingTimeoutRef.current)
+                        clearTimeout(typingTimeoutRef.current);
+                      typingTimeoutRef.current = setTimeout(() => {
+                        socket.emit("stop-typing", { conversationId: id });
+                      }, 1200);
+                    }
+                  }}
+                  multiline
+                  textAlignVertical="center"
+                  onSubmitEditing={handleSend}
+                />
+                <TouchableOpacity
+                  onPress={handleSend}
+                  disabled={!input.trim() || sending}
+                >
+                  <LinearGradient
+                    colors={
+                      input.trim() && !sending
+                        ? ["#1d4ed8", "#2563eb"]
+                        : ["#334155", "#475569"]
+                    }
+                    style={styles.sendBtn}
+                  >
+                    {sending ? (
+                      <ActivityIndicator size="small" color="white" />
+                    ) : (
+                      <Send color="white" size={18} />
+                    )}
+                  </LinearGradient>
+                </TouchableOpacity>
+              </View>
             </View>
-          </View>
+          </InputAreaGuard>
         </KeyboardAvoidingView>
       </SafeAreaView>
 
@@ -3503,6 +3524,21 @@ export default function ChatDetailScreen() {
           conversation={activeConv}
           messages={currentMessages}
           currentUserId={user?.userId}
+          onDeleteConversation={handleDeleteConversationForMe}
+          isPinned={!!activeConv.pinnedAt}
+          onTogglePin={async () => {
+            if (!activeConv._id || !user?.userId) return;
+            try {
+              await chatService.togglePinConversation(activeConv._id);
+              await fetchConversations();
+            } catch {
+              Alert.alert("Lỗi", "Không thể ghim hội thoại");
+            }
+          }}
+          onCreateGroup={() => {
+            setShowInfoPanel(false);
+            // Navigate to create group with this person
+          }}
         />
       )}
       {activeConv?.group && activeConv && (
@@ -3515,6 +3551,16 @@ export default function ChatDetailScreen() {
           onDissolveGroup={handleDissolveGroup}
           onLeaveGroup={handleLeaveGroup}
           onDeleteConversation={handleDeleteConversationForMe}
+          isPinned={!!activeConv.pinnedAt}
+          onTogglePin={async () => {
+            if (!activeConv._id || !user?.userId) return;
+            try {
+              await chatService.togglePinConversation(activeConv._id);
+              await fetchConversations();
+            } catch {
+              Alert.alert("Lỗi", "Không thể ghim hội thoại");
+            }
+          }}
           onUpdateSettings={async (settings) => {
             if (!activeConv._id) return;
             try {
