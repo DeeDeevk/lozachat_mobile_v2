@@ -5,6 +5,7 @@ import { create } from "zustand";
 import { useAuthStore } from "./useAuthStore";
 import { useChatStore } from "./useChatStore";
 import { useFriendStore } from "./useFriendStore";
+import { navigationHelper } from "@/utils/navigationHelper";
 
 const baseURL = process.env.EXPO_PUBLIC_SOCKET_URL;
 
@@ -392,6 +393,31 @@ const registerSocketEvents = (
       ),
     }));
   });
+
+ // Trong handler
+socket.on("removed-from-group", ({ conversationId }) => {
+  const { activeConversationId } = useChatStore.getState();
+
+  useChatStore.setState((state) => ({
+    conversations: state.conversations.filter(
+      (c) => c._id !== conversationId,
+    ),
+    activeConversationId:
+      state.activeConversationId === conversationId
+        ? null
+        : state.activeConversationId,
+    messages: Object.fromEntries(
+      Object.entries(state.messages).filter(
+        ([key]) => key !== conversationId,
+      ),
+    ),
+  }));
+
+  // ✅ Tự navigate về nếu đang ở trong conversation đó
+  if (activeConversationId === conversationId) {
+    navigationHelper.goToTabs();
+  }
+});
 };
 
 export const useSocketStore = create<SocketState>((set, get) => ({

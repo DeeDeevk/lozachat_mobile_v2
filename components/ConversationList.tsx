@@ -1,4 +1,4 @@
-import { Search, UserRoundSearch, UsersRound } from "lucide-react-native";
+import { Search, UserRoundSearch, UsersRound, Pin } from "lucide-react-native";
 import React, { useState } from "react";
 import {
   FlatList,
@@ -33,6 +33,8 @@ export interface Conversation {
   unread?: number;
   isStranger?: boolean;
   strangerStatus?: string;
+  pinnedAt?: string | null; // ← thêm dòng này
+  isPinned?: boolean;
 }
 
 type Tab = "all" | "direct" | "group";
@@ -114,6 +116,13 @@ export default function ConversationList({
       return matchSearch;
     })
     .sort((a, b) => {
+      // Pinned conversations lên trên cùng (check pinnedAt field)
+      const aPinned = !!a.pinnedAt;
+      const bPinned = !!b.pinnedAt;
+      if (aPinned && !bPinned) return -1;
+      if (!aPinned && bPinned) return 1;
+
+      // Nếu cùng pin status, sort theo lastMessage time
       const timeA = a.lastMessage?.createdAt
         ? new Date(a.lastMessage.createdAt).getTime()
         : 0;
@@ -252,17 +261,26 @@ export default function ConversationList({
               {name}
             </Text>
             <View style={styles.rowRight}>
+              {item.lastMessage && (
+                <View style={{ alignItems: "flex-end", gap: 4 }}>
+                  <Text style={styles.time}>
+                    {formatTime(item.lastMessage.createdAt)}
+                  </Text>
+                  {!!item.pinnedAt && (
+                    <Pin size={12} color="#f59e0b" fill="#f59e0b" />
+                  )}
+                </View>
+              )}
+              {/* Nếu không có lastMessage nhưng vẫn pinned */}
+              {!item.lastMessage && !!item.pinnedAt && (
+                <Pin size={12} color="#f59e0b" fill="#f59e0b" />
+              )}
               {(item as any).isStranger &&
                 (item as any).strangerStatus === "pending" && (
                   <View style={styles.strangerBadge}>
                     <Text style={styles.strangerBadgeText}>Mới</Text>
                   </View>
                 )}
-              {item.lastMessage && (
-                <Text style={styles.time}>
-                  {formatTime(item.lastMessage.createdAt)}
-                </Text>
-              )}
             </View>
           </View>
 
@@ -341,6 +359,8 @@ export default function ConversationList({
                   styles.tabText,
                   activeTab === tab.key && styles.tabTextActive,
                 ]}
+                numberOfLines={1}
+                adjustsFontSizeToFit
               >
                 {tab.label}
               </Text>
@@ -414,16 +434,16 @@ const styles = StyleSheet.create({
     gap: 6,
     paddingHorizontal: 8,
     paddingBottom: 8,
-    justifyContent: "space-between",
   },
   tab: {
     flex: 1,
-    paddingHorizontal: 12,
-    paddingVertical: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
     borderRadius: 20,
     backgroundColor: "rgba(255,255,255,0.05)",
     justifyContent: "center",
     alignItems: "center",
+    minWidth: 0,
   },
   tabActive: {
     backgroundColor: "rgba(59,130,246,0.2)",
