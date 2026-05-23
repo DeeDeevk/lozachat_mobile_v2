@@ -117,6 +117,7 @@ export interface ChatState {
     conversationId: string,
     action: "accepted" | "declined",
   ) => Promise<void>;
+
   forwardMessage: (
     message: Message,
     targetConversationIds: string[],

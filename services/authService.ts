@@ -1,6 +1,7 @@
 import { getDeviceId } from "@/utils/device";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import api from "../lib/axios";
+import axios from "axios";
 
 export interface SignInData {
   username: string;
@@ -15,6 +16,11 @@ export interface SignUpData {
   email: string;
 }
 
+// ✅ Instance riêng, không có interceptor → tránh vòng lặp
+const refreshInstance = axios.create({
+  baseURL: process.env.EXPO_PUBLIC_API_URL,
+});
+
 export const authService = {
   signIn: async (data: SignInData, forceLogin = true) => {
     const deviceId = await getDeviceId(); // thêm dòng này
@@ -28,6 +34,7 @@ export const authService = {
 
     if (res.data.refreshToken) {
       await AsyncStorage.setItem("refreshToken", res.data.refreshToken);
+      console.log("=== LƯU REFRESH TOKEN ===", res.data.refreshToken); // ← Thêm log này
     }
 
     return res.data;
@@ -46,7 +53,12 @@ export const authService = {
     console.log("refreshToken từ storage:", refreshToken);
 
     try {
-      const res = await api.post("/auth/signout", { deviceId, refreshToken });
+      // ✅ Gửi refreshToken trong body và bật withCredentials để gửi cookies
+      const res = await api.post(
+        "/auth/signout",
+        { deviceId, refreshToken },
+        { withCredentials: true },
+      );
       await AsyncStorage.removeItem("refreshToken");
       return res.data;
     } catch (error: any) {
@@ -62,11 +74,29 @@ export const authService = {
     return res.data.user;
   },
 
+  // authService.ts ✅ — thêm deviceId
   refresh: async () => {
     const refreshToken = await AsyncStorage.getItem("refreshToken");
+    const deviceId = await getDeviceId();
 
-    const res = await api.post("/auth/refresh", { refreshToken });
-    return res.data.accessToken;
+    console.log("=== REFRESH REQUEST ===");
+    console.log("status refreshToken:", refreshToken ? "có" : "null");
+    console.log("deviceId:", deviceId);
+
+    try {
+      const res = await refreshInstance.post("/auth/refresh", {
+        refreshToken,
+        deviceId,
+      });
+      console.log("=== REFRESH SUCCESS ===");
+      console.log("response:", res.data);
+      return res.data.accessToken;
+    } catch (error: any) {
+      console.log("=== REFRESH FAILED ===");
+      console.log("status:", error?.response?.status); // ← Số này quan trọng nhất
+      console.log("data:", error?.response?.data);
+      throw error;
+    }
   },
   fetchMe: async () => {
     const res = await api.get("/users/me", { withCredentials: true });
