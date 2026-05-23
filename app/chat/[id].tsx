@@ -1,5 +1,8 @@
 import ConversationInfoPanel from "@/components/ConversationInfoPanel";
+import FriendActionButton from "@/components/FriendActionButton";
 import GroupConversationInfoPanel from "@/components/GroupConversationInfoPanel";
+import InputAreaGuard from "@/components/InputAreaGuard";
+import { chatService } from "@/services/chatService";
 import { lozaBotService } from "@/services/lozaBotService";
 import { useAuthStore } from "@/stores/useAuthStore";
 import { useChatStore } from "@/stores/useChatStore";
@@ -8,6 +11,7 @@ import {
   getChatThemeById,
   useChatThemeStore,
 } from "@/stores/useChatThemeStore";
+import { useFriendStore } from "@/stores/useFriendStore";
 import { useSocketStore } from "@/stores/useSocketStore";
 import type {
   ChatStructuredPayload,
@@ -81,10 +85,6 @@ import {
   View,
 } from "react-native";
 import { styles } from "../style/chatstyle";
-import { chatService } from "@/services/chatService";
-import { useFriendStore } from "@/stores/useFriendStore";
-import InputAreaGuard from "@/components/InputAreaGuard";
-import FriendActionButton from "@/components/FriendActionButton";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type PopupType = "media" | "sticker" | "audio" | "poll" | "theme" | null;
@@ -1530,7 +1530,7 @@ export default function ChatDetailScreen() {
         }
         return (
           <Text style={[styles.msgText, isMine && styles.msgTextMine]}>
-            {message.content || ""}
+            {renderLinks(message.content || "")}
           </Text>
         );
       }
@@ -1547,7 +1547,7 @@ export default function ChatDetailScreen() {
               </Text>
             </View>
             <Text style={[styles.msgText, isMine && styles.msgTextMine]}>
-              {payload.text || ""}
+              {renderLinks(payload.text || "")}
             </Text>
           </View>
         );
@@ -1785,7 +1785,7 @@ export default function ChatDetailScreen() {
 
       return (
         <Text style={[styles.msgText, isMine && styles.msgTextMine]}>
-          {payload.text || payload.emoji || message.content || ""}
+          {renderLinks(payload.text || payload.emoji || message.content || "")}
         </Text>
       );
     },
@@ -2021,6 +2021,30 @@ export default function ChatDetailScreen() {
 
   const groupAvatars =
     activeConv?.participants?.map((p) => p.avatarUrl).filter(Boolean) || [];
+
+  function renderLinks(text: string) {
+    const urlRegex = /((?:https?:\/\/|www\.)[^\s]+)/g;
+    const parts = text.split(urlRegex);
+    return (
+      <Text>
+        {parts.map((part, index) => {
+          if (!part.match(urlRegex)) {
+            return <Text key={index}>{part}</Text>;
+          }
+          const href = part.startsWith("www.") ? `https://${part}` : part;
+          return (
+            <Text
+              key={index}
+              style={{ color: "#bfdbfe", textDecorationLine: "underline" }}
+              onPress={() => void WebBrowser.openBrowserAsync(encodeURI(href))}
+            >
+              {part}
+            </Text>
+          );
+        })}
+      </Text>
+    );
+  }
 
   return (
     <View style={[styles.mainContainer, dynamicStyles.mainContainer]}>

@@ -261,12 +261,23 @@ export default function CreateGroupModal({
                       <View
                         style={[
                           styles.tagAvatar,
-                          { backgroundColor: getAvatarColor(name) },
+                          {
+                            backgroundColor: u.avatarUrl
+                              ? "transparent"
+                              : getAvatarColor(name),
+                          },
                         ]}
                       >
-                        <Text style={styles.tagAvatarText}>
-                          {getInitials(name)}
-                        </Text>
+                        {u.avatarUrl ? (
+                          <Image
+                            source={{ uri: u.avatarUrl }}
+                            style={{ width: 20, height: 20, borderRadius: 10 }}
+                          />
+                        ) : (
+                          <Text style={styles.tagAvatarText}>
+                            {getInitials(name)}
+                          </Text>
+                        )}
                       </View>
                       <Text style={styles.tagName} numberOfLines={1}>
                         {name}
