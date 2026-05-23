@@ -23,6 +23,8 @@ import { useFriendStore } from "../stores/useFriendStore";
 interface Props {
   isOpen: boolean;
   onClose: () => void;
+  initialMembers?: any[]; // Pre-selected members (e.g., from ConversationInfoPanel)
+  onGroupCreated?: () => void; // Callback sau khi tạo group
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -45,7 +47,12 @@ const getAvatarColor = (name: string) => {
 const getInitials = (name: string) => name.slice(0, 2).toUpperCase();
 
 // ─── Component ────────────────────────────────────────────────────────────────
-export default function CreateGroupModal({ isOpen, onClose }: Props) {
+export default function CreateGroupModal({
+  isOpen,
+  onClose,
+  initialMembers = [],
+  onGroupCreated,
+}: Props) {
   const [groupName, setGroupName] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -56,15 +63,23 @@ export default function CreateGroupModal({ isOpen, onClose }: Props) {
   const { friends, getFriends, searchByUserName } = useFriendStore();
   const { createConversation } = useChatStore();
 
-  // Reset khi mở modal
+  // Fetch friends once on component mount
+  useEffect(() => {
+    getFriends();
+  }, []);
+
+  // Reset khi mở modal, pre-select initialMembers
   useEffect(() => {
     if (isOpen) {
-      getFriends();
       setGroupName("");
       setSearchQuery("");
-      setSelectedIds([]);
+
+      // Pre-select initialMembers
+      const initialIds = initialMembers.map((m) => m._id);
+      setSelectedIds(initialIds);
+      setSelectedStrangers(initialMembers);
+
       setSearchResult(null);
-      setSelectedStrangers([]);
     }
   }, [isOpen]);
 
@@ -93,16 +108,25 @@ export default function CreateGroupModal({ isOpen, onClose }: Props) {
     }
   };
 
-  const filteredFriends = friends.filter(
-    (f) =>
-      f.displayName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      f.username?.toLowerCase().includes(searchQuery.toLowerCase()),
-  );
+  // Filter: exclude initialMembers already selected (hide them from list)
+  const filteredFriends = friends.filter((f) => {
+    // Hide nếu đã được pre-select
+    if (initialMembers.some((m) => m._id === f._id)) return false;
 
-  const selectedUsers = [
-    ...friends.filter((f) => selectedIds.includes(f._id)),
-    ...selectedStrangers.filter((s) => selectedIds.includes(s._id)),
-  ];
+    return (
+      f.displayName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      f.username?.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+  });
+
+  const selectedUsers = Array.from(
+    new Map(
+      [
+        ...friends.filter((f) => selectedIds.includes(f._id)),
+        ...selectedStrangers.filter((s) => selectedIds.includes(s._id)),
+      ].map((u) => [u._id, u]),
+    ).values(),
+  );
 
   const handleCreate = async () => {
     if (!groupName.trim() || selectedIds.length < 2) return;
@@ -113,6 +137,7 @@ export default function CreateGroupModal({ isOpen, onClose }: Props) {
         name: groupName.trim(),
         memberIds: selectedIds,
       });
+      onGroupCreated?.();
       onClose();
     } finally {
       setIsCreating(false);
@@ -236,12 +261,23 @@ export default function CreateGroupModal({ isOpen, onClose }: Props) {
                       <View
                         style={[
                           styles.tagAvatar,
-                          { backgroundColor: getAvatarColor(name) },
+                          {
+                            backgroundColor: u.avatarUrl
+                              ? "transparent"
+                              : getAvatarColor(name),
+                          },
                         ]}
                       >
-                        <Text style={styles.tagAvatarText}>
-                          {getInitials(name)}
-                        </Text>
+                        {u.avatarUrl ? (
+                          <Image
+                            source={{ uri: u.avatarUrl }}
+                            style={{ width: 20, height: 20, borderRadius: 10 }}
+                          />
+                        ) : (
+                          <Text style={styles.tagAvatarText}>
+                            {getInitials(name)}
+                          </Text>
+                        )}
                       </View>
                       <Text style={styles.tagName} numberOfLines={1}>
                         {name}

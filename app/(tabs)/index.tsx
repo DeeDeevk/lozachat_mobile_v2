@@ -22,7 +22,7 @@ export default function ConversationScreen() {
       return;
     }
     fetchConversations();
-  }, []);
+  }, [fetchConversations, router]);
 
   const handleSelect = (id: string) => {
     // Chuyển sang folder chat và truyền conversationId vào URL
