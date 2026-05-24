@@ -1,4 +1,4 @@
-import { Search, UserRoundSearch, UsersRound, Pin } from "lucide-react-native";
+import { Pin, Search, UserRoundSearch, UsersRound } from "lucide-react-native";
 import React, { useState } from "react";
 import {
   FlatList,
@@ -13,9 +13,9 @@ import { useAuthStore } from "../stores/useAuthStore";
 import { useSocketStore } from "../stores/useSocketStore";
 import { getSafeMessagePreview } from "../utils/chatMessageCodec";
 import { formatTime } from "../utils/formatTime";
-import SearchUserModal from "./SearchUserModal";
-import MiniAvatar from "./MiniAvatar";
 import CreateGroupModal from "./CreateGroupModal";
+import MiniAvatar from "./MiniAvatar";
+import SearchUserModal from "./SearchUserModal";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 export interface Conversation {
@@ -261,6 +261,20 @@ export default function ConversationList({
               {name}
             </Text>
             <View style={styles.rowRight}>
+              {(item as any).isStranger &&
+                (item as any).strangerStatus === "pending" && (
+                  <View style={styles.strangerBadge}>
+                    <Text style={styles.strangerBadgeText}>Mới</Text>
+                  </View>
+                )}
+              {(item as any).isStranger &&
+                (item as any).strangerStatus === "accepted" && (
+                  <View style={styles.strangerAcceptedBadge}>
+                    <Text style={styles.strangerAcceptedBadgeText}>
+                      Người lạ
+                    </Text>
+                  </View>
+                )}
               {item.lastMessage && (
                 <View style={{ alignItems: "flex-end", gap: 4 }}>
                   <Text style={styles.time}>
@@ -275,12 +289,6 @@ export default function ConversationList({
               {!item.lastMessage && !!item.pinnedAt && (
                 <Pin size={12} color="#f59e0b" fill="#f59e0b" />
               )}
-              {(item as any).isStranger &&
-                (item as any).strangerStatus === "pending" && (
-                  <View style={styles.strangerBadge}>
-                    <Text style={styles.strangerBadgeText}>Mới</Text>
-                  </View>
-                )}
             </View>
           </View>
 
@@ -585,4 +593,17 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   emptyText: { color: "#475569", fontSize: 13 },
+  strangerAcceptedBadge: {
+    backgroundColor: "rgba(251,191,36,0.12)",
+    borderWidth: 1,
+    borderColor: "rgba(251,191,36,0.3)",
+    borderRadius: 6,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+  },
+  strangerAcceptedBadgeText: {
+    color: "#fbbf24",
+    fontSize: 10,
+    fontWeight: "600",
+  },
 });

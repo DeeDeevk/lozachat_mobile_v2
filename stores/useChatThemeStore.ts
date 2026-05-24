@@ -24,7 +24,7 @@ export const CHAT_THEME_OPTIONS: ChatThemeOption[] = [
     id: "aurora",
     name: "Aurora",
     mode: "gradient",
-    appBackgroundColor: "#0f172a",
+    appBackgroundColor: "#041226",
     messageAreaOverlay: "rgba(6,15,35,0.3)",
     mineBubbleColors: ["#2563eb", "#1d4ed8"],
   },
@@ -32,8 +32,8 @@ export const CHAT_THEME_OPTIONS: ChatThemeOption[] = [
     id: "sunset",
     name: "Sunset",
     mode: "gradient",
-    appBackgroundColor: "#e9be624f",
-    messageAreaOverlay: "rgba(117, 85, 128, 0.28)",
+    appBackgroundColor: "#1f1424",
+    messageAreaOverlay: "rgba(34,16,40,0.28)",
     mineBubbleColors: ["#f97316", "#ec4899"],
   },
   {
@@ -60,7 +60,7 @@ export const CHAT_THEME_OPTIONS: ChatThemeOption[] = [
     appBackgroundImage:
       "https://images.unsplash.com/photo-1465101046530-73398c7f28ca?auto=format&fit=crop&w=1600&q=80",
     messageAreaOverlay: "rgba(6,14,28,0.45)",
-    mineBubbleColors: ["#3b82f6", "#1d4ed8"],
+    mineBubbleColors: ["#1488CC", "#2B32B2"],
   },
   {
     id: "sand",
@@ -70,7 +70,7 @@ export const CHAT_THEME_OPTIONS: ChatThemeOption[] = [
     appBackgroundImage:
       "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=1600&q=80",
     messageAreaOverlay: "rgba(25,18,12,0.42)",
-    mineBubbleColors: ["#d97706", "#b45309"],
+    mineBubbleColors: ["#DECBA4"],
   },
 ];
 
