@@ -8,6 +8,7 @@ import { useAuthStore } from "@/stores/useAuthStore";
 import { useChatStore } from "@/stores/useChatStore";
 import {
   CHAT_THEME_OPTIONS,
+  ChatThemeOption,
   getChatThemeById,
   useChatThemeStore,
 } from "@/stores/useChatThemeStore";
@@ -72,6 +73,7 @@ import {
   Alert,
   FlatList,
   Image,
+  ImageBackground,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -457,6 +459,43 @@ function AddMemberModal({
   );
 }
 
+function ChatBackground({
+  theme,
+  style,
+  children,
+}: {
+  theme: ChatThemeOption;
+  style?: any;
+  children: React.ReactNode;
+}) {
+  if (theme.appBackgroundImage) {
+    return (
+      <ImageBackground
+        source={{ uri: theme.appBackgroundImage }}
+        style={[{ flex: 1 }, style]}
+        resizeMode="cover"
+      >
+        <View
+          style={{
+            ...StyleSheet.absoluteFillObject,
+            backgroundColor: theme.messageAreaOverlay,
+          }}
+          pointerEvents="none"
+        />
+        {children}
+      </ImageBackground>
+    );
+  }
+
+  return (
+    <View
+      style={[{ flex: 1, backgroundColor: theme.appBackgroundColor }, style]}
+    >
+      {children}
+    </View>
+  );
+}
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function ChatDetailScreen() {
   const { id } = useLocalSearchParams();
@@ -685,20 +724,21 @@ export default function ChatDetailScreen() {
     (s) => s.setThemeForConversation,
   );
   const dynamicStyles = {
-    mainContainer: {
-      flex: 1,
-      backgroundColor: theme.appBackgroundColor,
-    },
+    // mainContainer: {
+    //   flex: 1,
+    //   backgroundColor: theme.appBackgroundColor,
+    // },
 
     header: {
-      flexDirection: "row",
-      alignItems: "center",
+      flexDirection: "row" as const,
+      alignItems: "center" as const,
       padding: 15,
       backgroundColor: theme.messageAreaOverlay,
     },
 
     myBubble: {
-      backgroundColor: theme.mineBubbleColor,
+      // Dùng màu đầu tiên trong mảng làm fallback
+      backgroundColor: theme.mineBubbleColor ?? theme.mineBubbleColors?.[0],
     },
   };
   // ─── Derived data ───────────────────────────────────────────────────────────
@@ -2047,7 +2087,7 @@ export default function ChatDetailScreen() {
   }
 
   return (
-    <View style={[styles.mainContainer, dynamicStyles.mainContainer]}>
+    <ChatBackground theme={theme} style={styles.mainContainer}>
       <SafeAreaView style={{ flex: 1 }}>
         {/* Header */}
         <View style={styles.header}>
@@ -2059,7 +2099,11 @@ export default function ChatDetailScreen() {
           </TouchableOpacity>
           <View style={styles.headerCenter}>
             <View
-              style={{ flexDirection: "row", alignItems: "center", flex: 1 }}
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                flex: 1,
+              }}
             >
               {/* ================= AVATAR SECTION ================= */}
               <View style={{ position: "relative", marginRight: 12 }}>
@@ -2079,7 +2123,11 @@ export default function ChatDetailScreen() {
                       />
                     ) : (
                       <View
-                        style={{ width: 44, height: 44, position: "relative" }}
+                        style={{
+                          width: 44,
+                          height: 44,
+                          position: "relative",
+                        }}
                       >
                         {/* Logic Triangle Avatar tối ưu lại vị trí */}
                         {groupAvatars[0] && (
@@ -2610,7 +2658,6 @@ export default function ChatDetailScreen() {
           </InputAreaGuard>
         </KeyboardAvoidingView>
       </SafeAreaView>
-
       {/* ── Popups ── */}
 
       {/* Media popup */}
@@ -2681,9 +2728,8 @@ export default function ChatDetailScreen() {
                         width: 32,
                         height: 32,
                         borderRadius: 8,
-                        backgroundColor: isGradient
-                          ? theme.mineBubbleColors?.[0]
-                          : theme.mineBubbleColor,
+                        backgroundColor:
+                          theme.mineBubbleColors?.[0] ?? theme.mineBubbleColor,
                         borderWidth: 1,
                         borderColor: "rgba(255,255,255,.2)",
                       }}
@@ -3041,7 +3087,11 @@ export default function ChatDetailScreen() {
                         {getSafeMessagePreview(item.content || "Tin nhắn")}
                       </Text>
                       <Text
-                        style={{ color: "#64748b", fontSize: 11, marginTop: 2 }}
+                        style={{
+                          color: "#64748b",
+                          fontSize: 11,
+                          marginTop: 2,
+                        }}
                       >
                         Ghim lúc {formatMessageDateTime(item.pinnedAt)}
                       </Text>
@@ -3395,7 +3445,10 @@ export default function ChatDetailScreen() {
                       <Text
                         style={[
                           styles.popupActionText,
-                          isSelected && { color: "white", fontWeight: "600" },
+                          isSelected && {
+                            color: "white",
+                            fontWeight: "600",
+                          },
                         ]}
                       >
                         {chatName}
@@ -3418,7 +3471,10 @@ export default function ChatDetailScreen() {
                 disabled={selectedConvs.length === 0 || sending}
                 style={[
                   styles.pollSubmitBtn,
-                  { flex: 2, opacity: selectedConvs.length === 0 ? 0.5 : 1 },
+                  {
+                    flex: 2,
+                    opacity: selectedConvs.length === 0 ? 0.5 : 1,
+                  },
                 ]}
                 onPress={async () => {
                   setSending(true);
@@ -3633,6 +3689,6 @@ export default function ChatDetailScreen() {
           }}
         />
       )}
-    </View>
+    </ChatBackground>
   );
 }
