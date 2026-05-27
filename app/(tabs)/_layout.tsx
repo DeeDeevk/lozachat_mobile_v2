@@ -57,7 +57,7 @@ export default function TabLayout() {
         <Tabs.Screen
           name="explore"
           options={{
-            title: "Khám phá",
+            title: "Bảng tin",
             tabBarIcon: ({ color }) => <Globe size={24} color={color} />,
           }}
         />

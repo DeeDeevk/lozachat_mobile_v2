@@ -7,6 +7,7 @@ import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
 import React, { useCallback, useEffect, useState } from "react";
 import { changePasswordService } from '@/services/otpService';
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   ActivityIndicator,
   Alert,
@@ -15,6 +16,7 @@ import {
   Modal,
   Platform,
   Pressable,
+  RefreshControl,
   ScrollView,
   Text,
   TextInput,
@@ -738,10 +740,10 @@ function DeleteAccountModal({
 }
 
 export default function ProfileScreen({ navigation }: { navigation: any }) {
+  const insets = useSafeAreaInsets();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [showEdit, setShowEdit] = useState(false);
   const [showChangePw, setShowChangePw] = useState(false);
   const [showDeleteAccount, setShowDeleteAccount] = useState(false);
   const router = useRouter();
@@ -771,6 +773,12 @@ export default function ProfileScreen({ navigation }: { navigation: any }) {
       setError(error?.response?.data?.message ?? "Không thể tải thông tin");
     }
   }, []);
+
+  const refreshProfile = useCallback(async () => {
+    setError(null);
+    setLoading(true);
+    await loadProfile();
+  }, [loadProfile]);
 
   useEffect(() => {
     loadProfile();
@@ -815,7 +823,7 @@ export default function ProfileScreen({ navigation }: { navigation: any }) {
           try {
             await signOut();
             router.replace("/(auth)/signin");
-          } catch (error) {
+            } catch {
             Alert.alert("Lỗi", "Đăng xuất thất bại, vui lòng thử lại");
           }
         },
@@ -883,21 +891,25 @@ export default function ProfileScreen({ navigation }: { navigation: any }) {
           justifyContent: "space-between",
           alignItems: "center",
           paddingHorizontal: 16,
-          paddingTop: 52,
+          paddingTop: insets.top + 12,
           paddingBottom: 12,
         }}
       >
-        <Text style={{ color: "#fff", fontSize: 20, fontWeight: "bold" }}>
-          Cá nhân
-        </Text>
-        {profile && (
-          <TouchableOpacity onPress={() => setShowEdit(true)}>
-            <Ionicons name="create-outline" size={22} color={C.accentBlue} />
-          </TouchableOpacity>
-        )}
+        <View style={{ flex: 1 }}>
+          <Text style={{ color: "#fff", fontSize: 20, fontWeight: "bold" }}>
+            Cá nhân
+          </Text>
+          <Text style={{ color: C.textGrey, fontSize: 12, marginTop: 3 }}>
+            Quản lý hồ sơ và mở trang công khai của bạn
+          </Text>
+        </View>
       </View>
 
-      <ScrollView showsVerticalScrollIndicator={false}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void refreshProfile()} tintColor={C.accentBlue} colors={[C.accentBlue]} />}
+        contentContainerStyle={{ paddingBottom: insets.bottom + 28 }}
+      >
         {/* ── AVATAR (căn giữa giống Flutter) ── */}
         <View style={{ alignItems: "center", marginTop: 20, marginBottom: 16 }}>
           <TouchableOpacity onPress={pickAvatar} activeOpacity={0.8}>
@@ -971,6 +983,28 @@ export default function ProfileScreen({ navigation }: { navigation: any }) {
           <Text style={{ color: C.textGrey, fontSize: 14, marginTop: 4 }}>
             @{profile?.username}
           </Text>
+          {profile ? (
+            <TouchableOpacity
+              onPress={() => router.push(`/profile/${profile._id}` as never)}
+              style={{
+                marginTop: 14,
+                paddingHorizontal: 14,
+                paddingVertical: 10,
+                borderRadius: 999,
+                backgroundColor: `${C.accentBlue}22`,
+                borderWidth: 1,
+                borderColor: `${C.accentBlue}55`,
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 8,
+              }}
+            >
+              <Ionicons name="open-outline" size={16} color={C.accentBlue} />
+              <Text style={{ color: "#fff", fontSize: 13, fontWeight: "700" }}>
+                Xem trang cá nhân công khai
+              </Text>
+            </TouchableOpacity>
+          ) : null}
         </View>
 
         {/* ── THÔNG TIN ── */}
@@ -1060,14 +1094,6 @@ export default function ProfileScreen({ navigation }: { navigation: any }) {
       </ScrollView>
 
       {/* ── MODALS ── */}
-      {profile && (
-        <EditProfileModal
-          visible={showEdit}
-          profile={profile}
-          onClose={() => setShowEdit(false)}
-          onSaved={(updated) => setProfile(updated)}
-        />
-      )}
       <ChangePasswordModal
         visible={showChangePw}
         onClose={() => setShowChangePw(false)}

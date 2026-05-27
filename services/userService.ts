@@ -25,6 +25,11 @@ interface UpdateProfileResponse {
   user: UserProfile;
 }
 
+interface PublicProfileResponse {
+  user: UserProfile | null;
+  message?: string;
+}
+
 const getAuthHeader = async () => {
   const token = await AsyncStorage.getItem("accessToken");
   return {
@@ -33,6 +38,12 @@ const getAuthHeader = async () => {
 };
 
 export const userService = {
+  getPublicProfileById: async (userId: string): Promise<PublicProfileResponse> => {
+    const headers = await getAuthHeader();
+    const res = await api.get(`/users/${userId}`, { headers });
+    return res.data;
+  },
+
   updateMe: async (
     payload: UpdateProfilePayload,
   ): Promise<UpdateProfileResponse> => {

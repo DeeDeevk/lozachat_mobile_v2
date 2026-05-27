@@ -19,11 +19,66 @@ const getAuthHeader = async () => {
 };
 
 // 🔥 helper convert file mobile
-const buildFile = (file: any) => ({
-  uri: file.uri,
-  name: file.fileName || `file-${Date.now()}`,
-  type: file.type || "application/octet-stream",
-});
+const getExtensionFromMime = (mimeType?: string) => {
+  if (!mimeType) return "";
+  if (mimeType === "image/jpeg") return "jpg";
+  if (mimeType === "image/png") return "png";
+  if (mimeType === "image/gif") return "gif";
+  if (mimeType === "image/webp") return "webp";
+  if (mimeType === "image/heic") return "heic";
+  if (mimeType === "image/heif") return "heif";
+  if (mimeType === "video/mp4") return "mp4";
+  if (mimeType === "video/quicktime") return "mov";
+  if (mimeType === "video/webm") return "webm";
+  if (mimeType === "video/ogg") return "ogg";
+  if (mimeType === "video/x-m4v") return "m4v";
+  if (mimeType === "video/x-matroska") return "mkv";
+  if (mimeType === "audio/mp4" || mimeType === "audio/x-m4a") return "m4a";
+  return "";
+};
+
+const inferMimeType = (file: any) => {
+  const rawType = String(file?.mimeType || file?.type || "").toLowerCase();
+  if (rawType.startsWith("image/")) return rawType;
+  if (rawType.startsWith("video/")) return rawType;
+  if (rawType.startsWith("audio/")) return rawType;
+  if (rawType.includes("video")) return "video/mp4";
+  if (rawType.includes("audio")) return "audio/mp4";
+  if (rawType.includes("png")) return "image/png";
+  if (rawType.includes("gif")) return "image/gif";
+  if (rawType.includes("webp")) return "image/webp";
+  if (rawType.includes("heic")) return "image/heic";
+  if (rawType.includes("heif")) return "image/heif";
+  if (rawType.includes("jpg") || rawType.includes("jpeg") || rawType.includes("image")) return "image/jpeg";
+
+  const uri = String(file?.uri || "").toLowerCase();
+  if (uri.endsWith(".mp4")) return "video/mp4";
+  if (uri.endsWith(".mov")) return "video/quicktime";
+  if (uri.endsWith(".webm")) return "video/webm";
+  if (uri.endsWith(".ogg")) return "video/ogg";
+  if (uri.endsWith(".m4v")) return "video/x-m4v";
+  if (uri.endsWith(".mkv")) return "video/x-matroska";
+  if (uri.endsWith(".m4a")) return "audio/mp4";
+  if (uri.endsWith(".png")) return "image/png";
+  if (uri.endsWith(".gif")) return "image/gif";
+  if (uri.endsWith(".webp")) return "image/webp";
+  if (uri.endsWith(".heic")) return "image/heic";
+  if (uri.endsWith(".heif")) return "image/heif";
+  return "image/jpeg";
+};
+
+const buildFile = (file: any) => {
+  const mimeType = inferMimeType(file);
+  const extension = getExtensionFromMime(mimeType);
+  const fileName = String(file?.fileName || file?.name || `file-${Date.now()}`).trim();
+  const hasExtension = /\.[a-z0-9]+$/i.test(fileName);
+
+  return {
+    uri: file.uri,
+    name: hasExtension ? fileName : `${fileName}${extension ? `.${extension}` : ""}`,
+    type: mimeType,
+  };
+};
 
 export const postService = {
   // ─── Posts ───────────────────────────────────────────────────
@@ -114,6 +169,20 @@ export const postService = {
     await axiosInstance.delete(`/posts/${id}`, { headers });
   },
 
+  sharePost: async (
+    postId: string,
+    content = "",
+    visibility: Visibility = "public",
+  ): Promise<Post> => {
+    const headers = await getAuthHeader();
+    const { data } = await axiosInstance.post(
+      `/posts/${postId}/share`,
+      { content, visibility },
+      { headers },
+    );
+    return data;
+  },
+
   reactToPost: async (postId: string, type: ReactionType): Promise<Post> => {
     const headers = await getAuthHeader();
     const { data } = await axiosInstance.post(
@@ -121,6 +190,14 @@ export const postService = {
       { type },
       { headers },
     );
+    return data;
+  },
+
+  getReactionsDetail: async (postId: string): Promise<any> => {
+    const headers = await getAuthHeader();
+    const { data } = await axiosInstance.get(`/posts/${postId}/reactions-detail`, {
+      headers,
+    });
     return data;
   },
 
