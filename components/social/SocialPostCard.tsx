@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Alert, Image, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
-import { Video, ResizeMode } from "expo-av";
+import { isMediaVideo } from "@/utils/media";
 import { useRouter } from "expo-router";
 import { CornerDownRight, MessageCircle, MoreHorizontal, Send, Share2, Sparkles, ThumbsUp, X } from "lucide-react-native";
 import { usePostStore } from "@/stores/usePostStore";
@@ -9,6 +9,7 @@ import type { Post, ReactionType, Visibility } from "@/types/post";
 import { REACTION_EMOJI, REACTION_LABEL } from "@/types/post";
 import CommentModal from "@/components/social/CommentModal";
 import { formatRelativeTime } from "@/utils/formatRelativeTime";
+import VideoMedia from "@/components/social/VideoMedia";
 
 const REACTION_TYPES: ReactionType[] = ["like", "love", "haha", "wow", "sad", "angry"];
 
@@ -36,10 +37,6 @@ function Avatar({ name, avatarUrl }: { name: string; avatarUrl?: string }) {
   );
 }
 
-function isMediaVideo(url: string) {
-  return /\.(mp4|webm|ogg|mov|m4v)(\?.*)?$/i.test(url);
-}
-
 type MediaPreviewState = {
   sources: string[];
   index: number;
@@ -47,6 +44,7 @@ type MediaPreviewState = {
 
 function MediaGrid({ images, onPressMedia }: { images: string[]; onPressMedia?: (index: number) => void }) {
   const visible = images.slice(0, 4);
+  const remaining = images.length - visible.length;
 
   if (visible.length === 0) return null;
 
@@ -58,31 +56,61 @@ function MediaGrid({ images, onPressMedia }: { images: string[]; onPressMedia?: 
     );
   }
 
+  if (visible.length === 2) {
+    return (
+      <View style={styles.mediaGridTwo}>
+        {visible.map((src, index) => (
+          <MediaItem key={`${src}-${index}`} src={src} style={styles.mediaGridTwoItem} onPress={onPressMedia ? () => onPressMedia(index) : undefined} />
+        ))}
+      </View>
+    );
+  }
+
+  if (visible.length === 3) {
+    return (
+      <View style={styles.mediaGridThree}>
+        <MediaItem src={visible[0]} style={styles.mediaGridThreeMain} onPress={onPressMedia ? () => onPressMedia(0) : undefined} />
+        <View style={styles.mediaGridThreeStack}>
+          {visible.slice(1).map((src, index) => (
+            <MediaItem key={`${src}-${index + 1}`} src={src} style={styles.mediaGridThreeStackItem} onPress={onPressMedia ? () => onPressMedia(index + 1) : undefined} />
+          ))}
+        </View>
+      </View>
+    );
+  }
+
   return (
-    <View style={[styles.mediaGrid, visible.length === 3 && styles.mediaGridThree, visible.length === 4 && styles.mediaGridFour]}>
+    <View style={styles.mediaGridFour}>
       {visible.map((src, index) => (
-        <MediaItem key={`${src}-${index}`} src={src} style={styles.gridMedia} onPress={onPressMedia ? () => onPressMedia(index) : undefined} />
+        <View key={`${src}-${index}`} style={styles.mediaGridFourCell}>
+          <MediaItem src={src} style={styles.mediaGridFourItem} onPress={onPressMedia ? () => onPressMedia(index) : undefined} />
+          {index === 3 && remaining > 0 ? (
+            <View style={styles.mediaCountOverlay}>
+              <Text style={styles.mediaCountOverlayText}>+{remaining}</Text>
+            </View>
+          ) : null}
+        </View>
       ))}
     </View>
   );
 }
 
 function MediaItem({ src, style, onPress }: { src: string; style: any; onPress?: () => void }) {
-  if (isMediaVideo(src)) {
-    const videoNode = (
-      <View style={[style, styles.videoFrame]}>
-        <Video source={{ uri: src }} style={styles.videoPlayer} resizeMode={ResizeMode.COVER} isLooping={false} shouldPlay={false} useNativeControls={false} />
-        <View style={styles.videoBadge}>
-          <Sparkles size={12} color="#bfdbfe" />
-          <Text style={styles.videoBadgeText}>Video</Text>
-        </View>
-      </View>
-    );
+  const content = isMediaVideo(src) ? (
+    <VideoMedia uri={src} style={styles.mediaItemFill} badgeText="Video" />
+  ) : (
+    <Image source={{ uri: src }} style={styles.mediaItemFill} />
+  );
 
-    return onPress ? <TouchableOpacity activeOpacity={0.9} onPress={onPress}>{videoNode}</TouchableOpacity> : videoNode;
+  if (!onPress) {
+    return <View style={style}>{content}</View>;
   }
 
-  return onPress ? <TouchableOpacity activeOpacity={0.9} onPress={onPress}><Image source={{ uri: src }} style={style} /></TouchableOpacity> : <Image source={{ uri: src }} style={style} />;
+  return (
+    <TouchableOpacity activeOpacity={0.9} onPress={onPress} style={style}>
+      {content}
+    </TouchableOpacity>
+  );
 }
 
 function visibilityLabel(visibility: Visibility) {
@@ -494,11 +522,7 @@ export default function SocialPostCard({
 
             <View style={styles.mediaPreviewFrame}>
               {isMediaVideo(mediaPreview.sources[mediaPreview.index]) ? (
-                <View style={styles.mediaVideoFrame}>
-                  <Sparkles size={22} color="#bfdbfe" />
-                  <Text style={styles.mediaVideoText}>Video xem nhanh</Text>
-                  <Text style={styles.mediaVideoSubtext}>Mở bài viết để xem mô tả và tương tác.</Text>
-                </View>
+                <VideoMedia uri={mediaPreview.sources[mediaPreview.index]} style={styles.mediaPreviewVideo} controls badgeText="Video" />
               ) : (
                 <Image source={{ uri: mediaPreview.sources[mediaPreview.index] }} style={styles.mediaPreviewImage} resizeMode="contain" />
               )}
@@ -662,12 +686,18 @@ const styles = StyleSheet.create({
   content: { color: "#e2e8f0", fontSize: 14, lineHeight: 21, marginBottom: 12 },
   oneMediaWrap: { borderRadius: 22, overflow: "hidden", marginBottom: 12, backgroundColor: "#0b1220" },
   singleMedia: { width: "100%", height: 280, backgroundColor: "#0b1220" },
-  mediaGrid: { flexDirection: "row", flexWrap: "wrap", gap: 4, marginBottom: 12 },
-  mediaGridThree: {},
-  mediaGridFour: {},
-  gridMedia: { width: "49%", height: 160, borderRadius: 18, backgroundColor: "#0b1220" },
-  videoFrame: { backgroundColor: "#0f172a", overflow: "hidden", alignItems: "flex-start", justifyContent: "flex-end" },
-  videoPlayer: { ...StyleSheet.absoluteFillObject },
+  mediaGridTwo: { flexDirection: "row", gap: 10, marginBottom: 12 },
+  mediaGridTwoItem: { flex: 1, height: 190, borderRadius: 18, backgroundColor: "#0b1220" },
+  mediaGridThree: { flexDirection: "row", gap: 10, marginBottom: 12, height: 240 },
+  mediaGridThreeMain: { flex: 1, height: "100%", borderRadius: 18, backgroundColor: "#0b1220" },
+  mediaGridThreeStack: { width: "38%", gap: 10, height: "100%" },
+  mediaGridThreeStackItem: { flex: 1, borderRadius: 18, backgroundColor: "#0b1220" },
+  mediaGridFour: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginBottom: 12 },
+  mediaGridFourCell: { width: "48%", aspectRatio: 1, position: "relative" },
+  mediaGridFourItem: { width: "100%", height: "100%", borderRadius: 18, backgroundColor: "#0b1220" },
+  mediaCountOverlay: { ...StyleSheet.absoluteFillObject, borderRadius: 18, backgroundColor: "rgba(2,6,23,0.52)", alignItems: "center", justifyContent: "center" },
+  mediaCountOverlayText: { color: "#fff", fontSize: 24, fontWeight: "900" },
+  mediaItemFill: { width: "100%", height: "100%" },
   videoBadge: { flexDirection: "row", alignItems: "center", gap: 4, alignSelf: "flex-start", margin: 8, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 999, backgroundColor: "rgba(15,23,42,0.75)" },
   videoBadgeText: { color: "#bfdbfe", fontSize: 10, fontWeight: "800" },
   sharedBlock: { marginBottom: 12, padding: 12, borderRadius: 22, backgroundColor: "rgba(15,23,42,0.85)", borderWidth: 1, borderColor: "rgba(255,255,255,0.05)" },
@@ -734,9 +764,7 @@ const styles = StyleSheet.create({
   mediaSheet: { position: "absolute", left: 14, right: 14, bottom: 16, borderRadius: 28, backgroundColor: "#07111f", borderWidth: 1, borderColor: "rgba(255,255,255,0.07)", padding: 16 },
   mediaPreviewFrame: { height: 300, borderRadius: 22, overflow: "hidden", backgroundColor: "#050b16", marginBottom: 12, alignItems: "center", justifyContent: "center" },
   mediaPreviewImage: { width: "100%", height: "100%" },
-  mediaVideoFrame: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 20 },
-  mediaVideoText: { color: "#e2e8f0", fontSize: 15, fontWeight: "900", marginTop: 10 },
-  mediaVideoSubtext: { color: "#94a3b8", fontSize: 12, marginTop: 4, textAlign: "center" },
+  mediaPreviewVideo: { width: "100%", height: "100%" },
   mediaThumbRow: { gap: 8, paddingVertical: 4, marginBottom: 10 },
   mediaThumbWrap: { width: 52, height: 52, borderRadius: 14, overflow: "hidden", borderWidth: 1, borderColor: "transparent", backgroundColor: "rgba(255,255,255,0.04)" },
   mediaThumbWrapActive: { borderColor: "rgba(96,165,250,0.8)" },

@@ -1214,7 +1214,7 @@ export default function ChatDetailScreen() {
   // ─── Pick image (multiple) ───────────────────────────────────────────────────
   const handlePickImage = useCallback(async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ["images"],
       quality: 0.8,
       allowsMultipleSelection: true,
       selectionLimit: 10,

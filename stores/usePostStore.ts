@@ -159,7 +159,22 @@ export const usePostStore = create<PostStore>((set, get) => ({
 
   getPostImages: async (postId) => postService.getPostImages(postId),
 
-  reactToImage: async (postId, imageId, type) => postService.reactToImage(postId, imageId, type),
+  reactToImage: async (postId, imageId, type) => {
+    try {
+      const updatedImage = await postService.reactToImage(postId, imageId, type);
+      // Refresh the post in the feed so counts update everywhere
+      try {
+        const updatedPost = normalizePost(await postService.getById(postId));
+        set((state) => ({ posts: state.posts.map((post) => (post._id === postId ? updatedPost : post)) }));
+      } catch (e) {
+        // ignore
+      }
+      return updatedImage;
+    } catch (e) {
+      Toast.show({ type: "error", text1: "Không thể thả reaction" });
+      throw e;
+    }
+  },
 
   getCommentsForPost: async (postId, imageId) => {
     try {

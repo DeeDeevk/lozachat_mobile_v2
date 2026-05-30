@@ -193,7 +193,7 @@ export default function CommentModal({ visible, post, currentUserId, imageId = n
 
   const pickImages = async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ["images"],
       allowsMultipleSelection: true,
       quality: 0.85,
       selectionLimit: 4,

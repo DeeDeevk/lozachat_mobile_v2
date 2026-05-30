@@ -1,18 +1,18 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Image, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
-import { Video, ResizeMode } from "expo-av";
 import * as Clipboard from "expo-clipboard";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { ArrowLeft, Share2 } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { postService } from "@/services/postService";
-import { useAuthStore } from "@/stores/useAuthStore";
+import { isMediaVideo } from "@/utils/media";
 import { usePostStore } from "@/stores/usePostStore";
+import { useAuthStore } from "@/stores/useAuthStore";
 import { normalizePost } from "@/utils/normalizePost";
-import { formatRelativeTime } from "@/utils/formatRelativeTime";
 import { REACTION_EMOJI, REACTION_LABEL } from "@/types/post";
 import SocialPostCard from "@/components/social/SocialPostCard";
 import CommentModal from "@/components/social/CommentModal";
+import VideoMedia from "@/components/social/VideoMedia";
 import { subscribeSocialEvent } from "@/utils/socialRealtime";
 import type { Post, PostImage, ReactionType } from "@/types/post";
 
@@ -72,6 +72,12 @@ export default function PostDetailScreen() {
     void reloadPost();
   }, [reloadPost]);
 
+  // Subscribe to post updates from the global post store so reactions update immediately
+  const storePost = usePostStore((state) => state.posts.find((p) => p._id === postId));
+  useEffect(() => {
+    if (storePost) setPost(storePost);
+  }, [storePost]);
+
   useEffect(() => {
     if (!postId) return;
     void loadMedia();
@@ -86,19 +92,6 @@ export default function PostDetailScreen() {
     return unsubscribe;
   }, [loadMedia, postId, reloadPost]);
 
-  const initials = useMemo(() => {
-    const name = post?.author?.displayName || "Người dùng";
-    return (
-      name
-        .split(" ")
-        .filter(Boolean)
-        .slice(-2)
-        .map((part) => part[0])
-        .join("")
-        .toUpperCase() || "U"
-    );
-  }, [post?.author?.displayName]);
-
   const shareLink = async () => {
     await Clipboard.setStringAsync(`${process.env.EXPO_PUBLIC_WEB_URL || ""}/post/${postId}`);
   };
@@ -112,8 +105,6 @@ export default function PostDetailScreen() {
     void loadMediaReactionDetail();
     setReactionPickerOpen(false);
   };
-
-  const isMediaVideo = (url: string) => /\.(mp4|webm|ogg|mov|m4v|mkv)(\?.*)?$/i.test(url);
 
   const loadMediaReactionDetail = useCallback(async () => {
     if (!postId || !activeMedia) return;
@@ -138,6 +129,45 @@ export default function PostDetailScreen() {
     void loadMediaReactionDetail();
   }, [activeMedia, loadMediaReactionDetail]);
 
+  const visibleMedia = postImages.slice(0, 4);
+  const fallbackMedia = (post?.images || []).map((url, index) => ({
+    _id: `${postId}-fallback-${index}`,
+    postId,
+    url,
+    order: index,
+    reactions: [],
+    reactionsCount: 0,
+    commentsCount: 0,
+    createdAt: post?.createdAt || new Date().toISOString(),
+  }));
+  const displayMedia = visibleMedia.length > 0 ? visibleMedia : fallbackMedia.slice(0, 4);
+  const displayRemainingCount = Math.max(0, (visibleMedia.length > 0 ? postImages.length : fallbackMedia.length) - displayMedia.length);
+
+  const renderMediaCard = (image: PostImage, containerStyle: any, overflowCount = 0) => {
+    const mediaPreview = isMediaVideo(image.url) ? (
+      <VideoMedia uri={image.url} style={styles.mediaThumbVideo} badgeText="Video" />
+    ) : (
+      <Image source={{ uri: image.url }} style={styles.mediaThumb} />
+    );
+
+    return (
+      <TouchableOpacity key={image._id} style={[styles.mediaCard, containerStyle]} onPress={() => setActiveMedia(image)} activeOpacity={0.9}>
+        <View style={styles.mediaThumbWrap}>
+          {mediaPreview}
+          {overflowCount > 0 ? (
+            <View style={styles.mediaCountOverlay}>
+              <Text style={styles.mediaCountOverlayText}>+{overflowCount}</Text>
+            </View>
+          ) : null}
+        </View>
+        <View style={styles.mediaStats}>
+          <Text style={styles.mediaStatText}>{image.commentsCount || 0} bình luận</Text>
+          <Text style={styles.mediaStatText}>{image.reactionsCount || 0} react</Text>
+        </View>
+      </TouchableOpacity>
+    );
+  };
+
   return (
     <View style={styles.root}>
       <ScrollView contentContainerStyle={[styles.content, { paddingTop: insets.top + 12, paddingBottom: insets.bottom + 28 }]} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void reloadPost()} tintColor="#60a5fa" colors={["#60a5fa"]} />}>
@@ -147,7 +177,6 @@ export default function PostDetailScreen() {
           </TouchableOpacity>
           <View style={styles.topBarText}>
             <Text style={styles.headerTitle}>Chi tiết bài viết</Text>
-            <Text style={styles.headerSub}>Mở từ deeplink, thông báo, hoặc tìm kiếm</Text>
           </View>
           <TouchableOpacity style={styles.backBtn} onPress={() => void shareLink()}>
             <Share2 size={18} color="#e2e8f0" />
@@ -159,22 +188,6 @@ export default function PostDetailScreen() {
 
         {post ? (
           <View style={styles.detailCard}>
-            <View style={styles.metaRow}>
-              {post.author?.avatarUrl ? (
-                <Image source={{ uri: post.author.avatarUrl }} style={styles.avatar} />
-              ) : (
-                <View style={styles.avatarFallback}><Text style={styles.avatarFallbackText}>{initials}</Text></View>
-              )}
-              <View style={styles.metaBody}>
-                <Text style={styles.authorName}>{post.author?.displayName || "Người dùng"}</Text>
-                <Text style={styles.timeText}>{formatRelativeTime(post.createdAt)}</Text>
-              </View>
-              <View style={styles.reactionSummary}>
-                <Text style={styles.reactionCount}>{post.reactions?.length || 0}</Text>
-                <Text style={styles.reactionIcon}>{post.reactions?.[0]?.type ? REACTION_EMOJI[post.reactions[0].type] : "👍"}</Text>
-              </View>
-            </View>
-
             <SocialPostCard
               post={post}
               currentUserId={currentUserId}
@@ -182,32 +195,30 @@ export default function PostDetailScreen() {
               onProfilePress={(target) => router.push(`/profile/${target}` as never)}
             />
 
-            {postImages.length > 0 ? (
+            {displayMedia.length > 0 ? (
               <View style={styles.mediaSection}>
                 <View style={styles.sectionHeaderRow}>
                   <Text style={styles.sectionTitle}>Media</Text>
                   <Text style={styles.sectionHint}>Bình luận và react từng ảnh</Text>
                 </View>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.mediaRow}>
-                  {postImages.map((image) => (
-                    <TouchableOpacity key={image._id} style={styles.mediaCard} onPress={() => setActiveMedia(image)}>
-                      {isMediaVideo(image.url) ? (
-                        <View style={styles.mediaThumbVideoWrap}>
-                          <Video source={{ uri: image.url }} style={styles.mediaThumbVideo} resizeMode={ResizeMode.COVER} isLooping={false} shouldPlay={false} useNativeControls={false} />
-                          <View style={styles.mediaThumbVideoBadge}>
-                            <Text style={styles.mediaThumbVideoBadgeText}>Video</Text>
-                          </View>
-                        </View>
-                      ) : (
-                        <Image source={{ uri: image.url }} style={styles.mediaThumb} />
-                      )}
-                      <View style={styles.mediaStats}>
-                        <Text style={styles.mediaStatText}>{image.commentsCount || 0} bình luận</Text>
-                        <Text style={styles.mediaStatText}>{image.reactionsCount || 0} react</Text>
-                      </View>
-                    </TouchableOpacity>
-                  ))}
-                </ScrollView>
+                {displayMedia.length === 1 ? (
+                  renderMediaCard(displayMedia[0], styles.mediaCardSingle)
+                ) : displayMedia.length === 2 ? (
+                  <View style={styles.mediaGridTwo}>
+                    {displayMedia.map((image) => renderMediaCard(image, styles.mediaCardTwo))}
+                  </View>
+                ) : displayMedia.length === 3 ? (
+                  <View style={styles.mediaGridThree}>
+                    {renderMediaCard(displayMedia[0], styles.mediaCardThreeMain)}
+                    <View style={styles.mediaGridThreeStack}>
+                      {displayMedia.slice(1).map((image) => renderMediaCard(image, styles.mediaCardThreeSide))}
+                    </View>
+                  </View>
+                ) : (
+                  <View style={styles.mediaGridFour}>
+                    {displayMedia.map((image, index) => renderMediaCard(image, styles.mediaCardFour, index === 3 ? displayRemainingCount : 0))}
+                  </View>
+                )}
               </View>
             ) : null}
           </View>
@@ -229,9 +240,7 @@ export default function PostDetailScreen() {
               </View>
 
               {isMediaVideo(activeMedia.url) ? (
-                <View style={styles.mediaPreviewVideoWrap}>
-                  <Video source={{ uri: activeMedia.url }} style={styles.mediaPreviewVideo} resizeMode={ResizeMode.CONTAIN} isLooping={false} shouldPlay={false} useNativeControls />
-                </View>
+                <VideoMedia uri={activeMedia.url} style={styles.mediaPreviewVideo} controls badgeText="Video" />
               ) : (
                 <Image source={{ uri: activeMedia.url }} style={styles.mediaPreview} resizeMode="contain" />
               )}
@@ -328,13 +337,21 @@ const styles = StyleSheet.create({
   sectionHeaderRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   sectionTitle: { color: "#e2e8f0", fontSize: 15, fontWeight: "900" },
   sectionHint: { color: "#94a3b8", fontSize: 11, fontWeight: "700" },
-  mediaRow: { gap: 10 },
-  mediaCard: { width: 170, borderRadius: 20, backgroundColor: "rgba(255,255,255,0.04)", overflow: "hidden", borderWidth: 1, borderColor: "rgba(255,255,255,0.07)" },
-  mediaThumb: { width: "100%", height: 170, backgroundColor: "#0f172a" },
-  mediaThumbVideoWrap: { width: "100%", height: 170, backgroundColor: "#0f172a", overflow: "hidden" },
+  mediaGridTwo: { flexDirection: "row", gap: 10 },
+  mediaGridThree: { flexDirection: "row", gap: 10, height: 290 },
+  mediaGridThreeStack: { width: "38%", gap: 10, height: "100%" },
+  mediaGridFour: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
+  mediaCard: { borderRadius: 20, backgroundColor: "rgba(255,255,255,0.04)", overflow: "hidden", borderWidth: 1, borderColor: "rgba(255,255,255,0.07)", gap: 8 },
+  mediaCardSingle: { width: "100%" },
+  mediaCardTwo: { flex: 1 },
+  mediaCardThreeMain: { flex: 1 },
+  mediaCardThreeSide: { flex: 1, minHeight: 0 },
+  mediaCardFour: { width: "48%" },
+  mediaThumbWrap: { width: "100%", aspectRatio: 1, position: "relative", backgroundColor: "#0f172a" },
+  mediaThumb: { width: "100%", height: "100%", backgroundColor: "#0f172a" },
   mediaThumbVideo: { width: "100%", height: "100%" },
-  mediaThumbVideoBadge: { position: "absolute", left: 8, bottom: 8, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 999, backgroundColor: "rgba(15,23,42,0.75)" },
-  mediaThumbVideoBadgeText: { color: "#bfdbfe", fontSize: 10, fontWeight: "800" },
+  mediaCountOverlay: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(2,6,23,0.52)" },
+  mediaCountOverlayText: { color: "#fff", fontSize: 24, fontWeight: "900" },
   mediaStats: { flexDirection: "row", justifyContent: "space-between", paddingHorizontal: 10, paddingVertical: 8 },
   mediaStatText: { color: "#94a3b8", fontSize: 11, fontWeight: "700" },
   mediaBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.6)" },
@@ -344,8 +361,7 @@ const styles = StyleSheet.create({
   mediaTitle: { color: "#e2e8f0", fontSize: 16, fontWeight: "900" },
   mediaClose: { color: "#bfdbfe", fontSize: 12, fontWeight: "800" },
   mediaPreview: { width: "100%", height: 260, backgroundColor: "#050b16", borderRadius: 18 },
-  mediaPreviewVideoWrap: { width: "100%", height: 260, backgroundColor: "#050b16", borderRadius: 18, overflow: "hidden" },
-  mediaPreviewVideo: { width: "100%", height: "100%" },
+  mediaPreviewVideo: { width: "100%", height: 260, backgroundColor: "#050b16", borderRadius: 18 },
   mediaActionRow: { flexDirection: "row", gap: 10 },
   mediaActionBtn: { flex: 1, minHeight: 44, borderRadius: 16, backgroundColor: "rgba(59,130,246,0.14)", alignItems: "center", justifyContent: "center" },
   mediaActionText: { color: "#bfdbfe", fontSize: 13, fontWeight: "800" },

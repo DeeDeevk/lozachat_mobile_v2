@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Image, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import * as ImagePicker from "expo-image-picker";
+import * as DocumentPicker from "expo-document-picker";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Bell, ImagePlus, Search, Send, UserCircle2 } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -9,8 +10,34 @@ import { usePostStore } from "@/stores/usePostStore";
 import { notificationService } from "@/services/notificationService";
 import NotificationModal from "@/components/social/NotificationModal";
 import SocialPostCard from "@/components/social/SocialPostCard";
+import VideoMedia from "@/components/social/VideoMedia";
 import type { Visibility } from "@/types/post";
 import { subscribeSocialEvent } from "@/utils/socialRealtime";
+import { isMediaVideo } from "@/utils/media";
+
+type ComposerAttachment = {
+  uri: string;
+  name?: string | null;
+  mimeType?: string | null;
+  fileSize?: number | null;
+};
+
+function isImageAttachment(attachment: ComposerAttachment) {
+  const mimeType = String(attachment.mimeType || "").toLowerCase();
+  return mimeType.startsWith("image/") || /\.(png|jpe?g|gif|webp|heic|heif)(\?.*)?$/i.test(attachment.uri);
+}
+
+function isVideoAttachment(attachment: ComposerAttachment) {
+  const mimeType = String(attachment.mimeType || "").toLowerCase();
+  return mimeType.startsWith("video/") || isMediaVideo(attachment.uri);
+}
+
+function formatFileSize(size?: number | null) {
+  if (!size) return "";
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+}
 
 export default function ExploreScreen() {
   const insets = useSafeAreaInsets();
@@ -22,7 +49,7 @@ export default function ExploreScreen() {
   const postYRef = useRef<Record<string, number>>({});
 
   const [content, setContent] = useState("");
-  const [images, setImages] = useState<any[]>([]);
+  const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const [visibility, setVisibility] = useState<Visibility>("public");
   const [creating, setCreating] = useState(false);
   const [notificationOpen, setNotificationOpen] = useState(false);
@@ -68,6 +95,54 @@ export default function ExploreScreen() {
     }
   };
 
+  const appendAttachments = (items: ComposerAttachment[]) => {
+    if (items.length === 0) return;
+    setAttachments((prev) => [...prev, ...items].slice(0, 10));
+  };
+
+  const pickFromPhotoIOS = async () => {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) return;
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images", "videos"],
+      allowsMultipleSelection: true,
+      quality: 1,
+      videoExportPreset: ImagePicker.VideoExportPreset.MediumQuality,
+      selectionLimit: 10,
+    });
+
+    if (!result.canceled && result.assets.length > 0) {
+      appendAttachments(
+        result.assets.map((asset) => ({
+          uri: asset.uri,
+          name: asset.fileName,
+          mimeType: asset.mimeType,
+          fileSize: asset.fileSize,
+        })),
+      );
+    }
+  };
+
+  const pickFromDocumentPicker = async () => {
+    const result = await DocumentPicker.getDocumentAsync({
+      type: "*/*",
+      multiple: true,
+      copyToCacheDirectory: true,
+    });
+
+    if (!result.canceled && result.assets.length > 0) {
+      appendAttachments(
+        result.assets.map((asset) => ({
+          uri: asset.uri,
+          name: asset.name,
+          mimeType: asset.mimeType,
+          fileSize: asset.size,
+        })),
+      );
+    }
+  };
+
   useEffect(() => {
     const postId = typeof params.post === "string" ? params.post : Array.isArray(params.post) ? params.post[0] : null;
     const wantsComments = params.comments === "1";
@@ -86,28 +161,15 @@ export default function ExploreScreen() {
     })();
   }, [params.comments, params.post, ensurePostInFeed]);
 
-  const pickImages = async () => {
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.All,
-      allowsMultipleSelection: true,
-      quality: 0.85,
-      selectionLimit: 10,
-    });
-
-    if (!result.canceled) {
-      setImages((prev) => [...prev, ...result.assets]);
-    }
-  };
-
-  const removeImage = (index: number) => setImages((prev) => prev.filter((_, i) => i !== index));
+  const removeAttachment = (index: number) => setAttachments((prev) => prev.filter((_, i) => i !== index));
 
   const submitPost = async () => {
-    if (creating || (!content.trim() && images.length === 0)) return;
+    if (creating || (!content.trim() && attachments.length === 0)) return;
     setCreating(true);
     try {
-      await createPost(content.trim(), images, visibility);
+      await createPost(content.trim(), attachments, visibility);
       setContent("");
-      setImages([]);
+      setAttachments([]);
       setVisibility("public");
       setPrivacyOpen(false);
       setComposerOpen(false);
@@ -297,12 +359,22 @@ export default function ExploreScreen() {
               style={styles.composerModalInput}
             />
 
-            {images.length > 0 ? (
+            {attachments.length > 0 ? (
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.previewStrip}>
-                {images.map((asset, index) => (
+                {attachments.map((asset, index) => (
                   <View key={`${asset.uri}-${index}`} style={styles.previewWrap}>
-                    <Image source={{ uri: asset.uri }} style={styles.previewImage} />
-                    <TouchableOpacity style={styles.previewRemove} onPress={() => removeImage(index)}>
+                    {isVideoAttachment(asset) ? (
+                      <VideoMedia uri={asset.uri} style={styles.previewImage} badgeText="Video" />
+                    ) : isImageAttachment(asset) ? (
+                      <Image source={{ uri: asset.uri }} style={styles.previewImage} />
+                    ) : (
+                      <View style={styles.previewFileCard}>
+                        <Text style={styles.previewFileLabel}>FILE</Text>
+                        <Text style={styles.previewFileName} numberOfLines={2}>{asset.name || "Tệp đính kèm"}</Text>
+                        {asset.fileSize ? <Text style={styles.previewFileMeta}>{formatFileSize(asset.fileSize)}</Text> : null}
+                      </View>
+                    )}
+                    <TouchableOpacity style={styles.previewRemove} onPress={() => removeAttachment(index)}>
                       <Text style={styles.previewRemoveText}>×</Text>
                     </TouchableOpacity>
                   </View>
@@ -311,12 +383,16 @@ export default function ExploreScreen() {
             ) : null}
 
             <View style={styles.composerModalActions}>
-              <TouchableOpacity style={styles.attachBtn} onPress={pickImages}>
+              <TouchableOpacity style={styles.attachBtn} onPress={() => void pickFromPhotoIOS()}>
                 <ImagePlus size={16} color="#bfdbfe" />
-                <Text style={styles.attachText}>Media</Text>
+                <Text style={styles.attachText}>PhotoIOS</Text>
               </TouchableOpacity>
 
-              <TouchableOpacity style={styles.postBtn} onPress={() => void submitPost()} disabled={creating || (!content.trim() && images.length === 0)}>
+              <TouchableOpacity style={styles.attachBtn} onPress={() => void pickFromDocumentPicker()}>
+                <Text style={styles.attachText}>File</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.postBtn} onPress={() => void submitPost()} disabled={creating || (!content.trim() && attachments.length === 0)}>
                 <Send size={16} color="#fff" />
                 <Text style={styles.postBtnText}>{creating ? "Đang đăng..." : "Đăng"}</Text>
               </TouchableOpacity>
@@ -379,6 +455,10 @@ const styles = StyleSheet.create({
   previewStrip: { marginTop: 10, marginBottom: 4 },
   previewWrap: { position: "relative", marginRight: 10 },
   previewImage: { width: 78, height: 78, borderRadius: 18, backgroundColor: "#111827" },
+  previewFileCard: { width: 78, height: 78, borderRadius: 18, padding: 8, backgroundColor: "#111827", justifyContent: "space-between" },
+  previewFileLabel: { color: "#7dd3fc", fontSize: 9, fontWeight: "900", letterSpacing: 0.8 },
+  previewFileName: { color: "#e2e8f0", fontSize: 10, fontWeight: "700", lineHeight: 13 },
+  previewFileMeta: { color: "#94a3b8", fontSize: 9, fontWeight: "700" },
   previewRemove: { position: "absolute", top: -5, right: -5, width: 20, height: 20, borderRadius: 10, backgroundColor: "#ef4444", alignItems: "center", justifyContent: "center" },
   previewRemoveText: { color: "#fff", fontSize: 15, fontWeight: "900", marginTop: -1 },
   composerModalActions: { marginTop: 12, gap: 10, paddingBottom: 2 },
