@@ -1,12 +1,13 @@
+import { QuickMessageModal } from "@/components/QuickMessageModal";
 import api from "@/lib/axios";
 import { authService } from "@/services/authService";
+import { changePasswordService } from "@/services/otpService";
 import { userService } from "@/services/userService";
 import { useAuthStore } from "@/stores/useAuthStore";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
 import React, { useCallback, useEffect, useState } from "react";
-import { changePasswordService } from '@/services/otpService';
 import {
   ActivityIndicator,
   Alert,
@@ -290,14 +291,15 @@ function ChangePasswordModal({
     try {
       await changePasswordService.changePassword(oldPw, newPw);
       setSaving(false);
-      Alert.alert('Thành công', 'Đổi mật khẩu thành công!');
-      reset(); onClose();
+      Alert.alert("Thành công", "Đổi mật khẩu thành công!");
+      reset();
+      onClose();
     } catch (error: any) {
       setSaving(false);
-      const msg = error?.response?.data?.message ?? 'Đổi mật khẩu thất bại';
+      const msg = error?.response?.data?.message ?? "Đổi mật khẩu thất bại";
       const isOldWrong = /old|incorrect|wrong|hiện tại|cũ/i.test(msg);
-      if (isOldWrong) setErrors(p => ({ ...p, old: msg }));
-      else Alert.alert('Lỗi', msg);
+      if (isOldWrong) setErrors((p) => ({ ...p, old: msg }));
+      else Alert.alert("Lỗi", msg);
     }
   };
 
@@ -744,6 +746,7 @@ export default function ProfileScreen({ navigation }: { navigation: any }) {
   const [showEdit, setShowEdit] = useState(false);
   const [showChangePw, setShowChangePw] = useState(false);
   const [showDeleteAccount, setShowDeleteAccount] = useState(false);
+  const [showQuickMessages, setShowQuickMessages] = useState(false);
   const router = useRouter();
   const signOut = useAuthStore((s) => s.signOut);
 
@@ -896,7 +899,6 @@ export default function ProfileScreen({ navigation }: { navigation: any }) {
           </TouchableOpacity>
         )}
       </View>
-
       <ScrollView showsVerticalScrollIndicator={false}>
         {/* ── AVATAR (căn giữa giống Flutter) ── */}
         <View style={{ alignItems: "center", marginTop: 20, marginBottom: 16 }}>
@@ -1033,6 +1035,12 @@ export default function ProfileScreen({ navigation }: { navigation: any }) {
           title="Giao diện"
           subtitle="Chế độ tối đang bật"
         />
+        <MenuTile
+          icon="flash-outline"
+          title="Tin nhắn nhanh"
+          subtitle="Quản lý shortcut tin nhắn"
+          onPress={() => setShowQuickMessages(true)}
+        />
 
         {/* ── ĐĂNG XUẤT ── */}
         <View
@@ -1058,7 +1066,6 @@ export default function ProfileScreen({ navigation }: { navigation: any }) {
           </TouchableOpacity>
         </View>
       </ScrollView>
-
       {/* ── MODALS ── */}
       {profile && (
         <EditProfileModal
@@ -1076,6 +1083,10 @@ export default function ProfileScreen({ navigation }: { navigation: any }) {
         visible={showDeleteAccount}
         onClose={() => setShowDeleteAccount(false)}
         onDeleted={() => router.replace("/(auth)/signin")}
+      />
+      <QuickMessageModal
+        visible={showQuickMessages}
+        onClose={() => setShowQuickMessages(false)}
       />
     </View>
   );

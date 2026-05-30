@@ -6,7 +6,9 @@ export const encodeChatPayload = (payload: ChatStructuredPayload): string => {
   return `${PREFIX}${JSON.stringify(payload)}`;
 };
 
-export const decodeChatPayload = (content?: string | null): ChatStructuredPayload | null => {
+export const decodeChatPayload = (
+  content?: string | null,
+): ChatStructuredPayload | null => {
   if (!content || typeof content !== "string") return null;
   if (!content.startsWith(PREFIX)) return null;
 
@@ -22,7 +24,10 @@ export const decodeChatPayload = (content?: string | null): ChatStructuredPayloa
   }
 };
 
-export const getSafeMessagePreview = (content?: string | null, fallback = "Tin nhắn"): string => {
+export const getSafeMessagePreview = (
+  content?: string | null,
+  fallback = "Tin nhắn",
+): string => {
   const payload = decodeChatPayload(content);
   if (!payload) {
     return (content || "").trim() || fallback;
@@ -47,6 +52,8 @@ export const getSafeMessagePreview = (content?: string | null, fallback = "Tin n
       return `Da tao binh chon: ${payload.poll?.question || "Binh chon"}`;
     case "poll_vote":
       return "Da bo phieu";
+    case "call":
+      return "Da goi dien thoai";
     default:
       return fallback;
   }
