@@ -1,6 +1,7 @@
 import type { SocketState } from "@/types/store";
 import { getDeviceId } from "@/utils/device";
 import { navigationHelper } from "@/utils/navigationHelper";
+import { emitSocialEvent } from "@/utils/socialRealtime";
 import { io, type Socket } from "socket.io-client";
 import { create } from "zustand";
 import { useAuthStore } from "./useAuthStore";
@@ -42,6 +43,7 @@ const registerSocketEvents = (
   socket.off("conversation:theme-updated");
   socket.off("force-logout");
   socket.off("join-request-resolved");
+  socket.off("notification");
   socket.on("removed-from-group", ({ conversationId }) => {
     useChatStore.setState((state) => ({
       conversations: state.conversations.filter(
@@ -240,6 +242,10 @@ const registerSocketEvents = (
   socket.on("stranger-request", ({ conversation }) => {
     useChatStore.getState().addConversation(conversation);
     socket.emit("join-conversation", { conversationId: conversation._id });
+  });
+
+  socket.on("notification", (notification) => {
+    emitSocialEvent("notification", notification);
   });
 
   socket.on("stranger-accepted", ({ conversationId }) => {
