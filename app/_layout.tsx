@@ -17,6 +17,9 @@ export default function RootLayout() {
         {/* Nhóm đã login (Thanh Tabbar nằm ở đây) */}
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
 
+        {/* Chi tiết social */}
+        <Stack.Screen name="post/[id]" options={{ headerShown: false }} />
+
         {/* Màn hình Landing Page mặc định */}
         <Stack.Screen name="index" options={{ headerShown: false }} />
       </Stack>
