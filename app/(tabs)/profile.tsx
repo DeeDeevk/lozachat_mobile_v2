@@ -1,13 +1,13 @@
+import { QuickMessageModal } from "@/components/QuickMessageModal";
 import api from "@/lib/axios";
 import { authService } from "@/services/authService";
+import { changePasswordService } from "@/services/otpService";
 import { userService } from "@/services/userService";
 import { useAuthStore } from "@/stores/useAuthStore";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
 import React, { useCallback, useEffect, useState } from "react";
-import { changePasswordService } from '@/services/otpService';
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   ActivityIndicator,
   Alert,
@@ -23,6 +23,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 // ─── COLORS ────────────────────────────────────────────────────────────────────
 const C = {
@@ -292,14 +293,15 @@ function ChangePasswordModal({
     try {
       await changePasswordService.changePassword(oldPw, newPw);
       setSaving(false);
-      Alert.alert('Thành công', 'Đổi mật khẩu thành công!');
-      reset(); onClose();
+      Alert.alert("Thành công", "Đổi mật khẩu thành công!");
+      reset();
+      onClose();
     } catch (error: any) {
       setSaving(false);
-      const msg = error?.response?.data?.message ?? 'Đổi mật khẩu thất bại';
+      const msg = error?.response?.data?.message ?? "Đổi mật khẩu thất bại";
       const isOldWrong = /old|incorrect|wrong|hiện tại|cũ/i.test(msg);
-      if (isOldWrong) setErrors(p => ({ ...p, old: msg }));
-      else Alert.alert('Lỗi', msg);
+      if (isOldWrong) setErrors((p) => ({ ...p, old: msg }));
+      else Alert.alert("Lỗi", msg);
     }
   };
 
@@ -746,6 +748,7 @@ export default function ProfileScreen({ navigation }: { navigation: any }) {
   const [error, setError] = useState<string | null>(null);
   const [showChangePw, setShowChangePw] = useState(false);
   const [showDeleteAccount, setShowDeleteAccount] = useState(false);
+  const [showQuickMessages, setShowQuickMessages] = useState(false);
   const router = useRouter();
   const signOut = useAuthStore((s) => s.signOut);
 
@@ -823,7 +826,7 @@ export default function ProfileScreen({ navigation }: { navigation: any }) {
           try {
             await signOut();
             router.replace("/(auth)/signin");
-            } catch {
+          } catch {
             Alert.alert("Lỗi", "Đăng xuất thất bại, vui lòng thử lại");
           }
         },
@@ -907,7 +910,14 @@ export default function ProfileScreen({ navigation }: { navigation: any }) {
 
       <ScrollView
         showsVerticalScrollIndicator={false}
-        refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void refreshProfile()} tintColor={C.accentBlue} colors={[C.accentBlue]} />}
+        refreshControl={
+          <RefreshControl
+            refreshing={loading}
+            onRefresh={() => void refreshProfile()}
+            tintColor={C.accentBlue}
+            colors={[C.accentBlue]}
+          />
+        }
         contentContainerStyle={{ paddingBottom: insets.bottom + 28 }}
       >
         {/* ── AVATAR (căn giữa giống Flutter) ── */}
@@ -1067,6 +1077,12 @@ export default function ProfileScreen({ navigation }: { navigation: any }) {
           title="Giao diện"
           subtitle="Chế độ tối đang bật"
         />
+        <MenuTile
+          icon="flash-outline"
+          title="Tin nhắn nhanh"
+          subtitle="Quản lý shortcut tin nhắn"
+          onPress={() => setShowQuickMessages(true)}
+        />
 
         {/* ── ĐĂNG XUẤT ── */}
         <View
@@ -1092,7 +1108,6 @@ export default function ProfileScreen({ navigation }: { navigation: any }) {
           </TouchableOpacity>
         </View>
       </ScrollView>
-
       {/* ── MODALS ── */}
       <ChangePasswordModal
         visible={showChangePw}
@@ -1102,6 +1117,10 @@ export default function ProfileScreen({ navigation }: { navigation: any }) {
         visible={showDeleteAccount}
         onClose={() => setShowDeleteAccount(false)}
         onDeleted={() => router.replace("/(auth)/signin")}
+      />
+      <QuickMessageModal
+        visible={showQuickMessages}
+        onClose={() => setShowQuickMessages(false)}
       />
     </View>
   );
