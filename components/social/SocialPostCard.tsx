@@ -313,13 +313,7 @@ export default function SocialPostCard({
   return (
     <>
       <View style={[styles.card, highlighted && styles.cardHighlighted]}>
-        <TouchableOpacity
-          activeOpacity={0.92}
-          onPress={onOpenDetail}
-          disabled={!onOpenDetail}
-          style={styles.detailHitArea}
-        >
-          <View style={styles.header}>
+        <View style={styles.header}>
           <TouchableOpacity style={styles.authorRow} onPress={goProfile} activeOpacity={0.8}>
             <Avatar name={post.author?.displayName || "Người dùng"} avatarUrl={post.author?.avatarUrl} />
             <View style={styles.authorMeta}>
@@ -337,11 +331,28 @@ export default function SocialPostCard({
               <MoreHorizontal size={18} color="#94a3b8" />
             </TouchableOpacity>
           ) : null}
-          </View>
+        </View>
 
+        <TouchableOpacity
+          activeOpacity={0.92}
+          onPress={onOpenDetail}
+          disabled={!onOpenDetail}
+          style={styles.detailHitArea}
+        >
           {post.content ? <Text style={styles.content}>{post.content}</Text> : null}
 
-          {post.images?.length ? <MediaGrid images={post.images} onPressMedia={(index) => setMediaPreview({ sources: post.images || [], index })} /> : null}
+          {post.images?.length ? (
+            <MediaGrid
+              images={post.images}
+              onPressMedia={(index) => {
+                if (onOpenDetail) {
+                  onOpenDetail();
+                  return;
+                }
+                setMediaPreview({ sources: post.images || [], index });
+              }}
+            />
+          ) : null}
 
           {post.sharedFrom || post.sharedFromAuthorName || post.sharedOriginalContent ? (
             <View style={styles.sharedBlock}>
@@ -350,7 +361,18 @@ export default function SocialPostCard({
                 <Text style={styles.sharedLabel}>Bài được chia sẻ từ {sharedFromAuthorName}</Text>
               </View>
               {post.sharedOriginalContent ? <Text style={styles.sharedContent}>{post.sharedOriginalContent}</Text> : null}
-              {sharedImages.length ? <MediaGrid images={sharedImages} onPressMedia={(index) => setMediaPreview({ sources: sharedImages, index })} /> : null}
+              {sharedImages.length ? (
+                <MediaGrid
+                  images={sharedImages}
+                  onPressMedia={(index) => {
+                    if (onOpenDetail) {
+                      onOpenDetail();
+                      return;
+                    }
+                    setMediaPreview({ sources: sharedImages, index });
+                  }}
+                />
+              ) : null}
             </View>
           ) : null}
 
