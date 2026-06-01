@@ -201,7 +201,10 @@ export default function PublicProfileScreen() {
               key={post._id}
               post={post}
               currentUserId={currentUserId}
-              onProfilePress={(target) => router.push(`/profile/${target}` as never)}
+              onProfilePress={(target) => {
+                if (String(target) === String(userId)) return;
+                router.push(`/profile/${target}` as never);
+              }}
             />
           ))}
         </View>

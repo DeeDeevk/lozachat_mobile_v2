@@ -87,14 +87,14 @@ export default function SearchScreen() {
 
         {results?.posts?.length ? <Text style={styles.sectionTitle}>Bài viết</Text> : null}
         {results?.posts?.map((post) => (
-          <TouchableOpacity key={post._id} activeOpacity={0.9} onPress={() => openPost(post._id)}>
+          <View key={post._id}>
             <SocialPostCard
               post={post}
               currentUserId={currentUserId}
               onProfilePress={openProfile}
               onOpenDetail={() => openPost(post._id)}
             />
-          </TouchableOpacity>
+          </View>
         ))}
 
         {!loading && results && results.posts.length === 0 && results.users.length === 0 ? (
