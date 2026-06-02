@@ -1,12 +1,13 @@
 import api from "@/lib/axios";
 import { authService } from "@/services/authService";
-import { userService } from "@/services/userService";
+import { AccountLockRequest, userService } from "@/services/userService";
 import { useAuthStore } from "@/stores/useAuthStore";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
 import React, { useCallback, useEffect, useState } from "react";
 import { changePasswordService } from '@/services/otpService';
+import { useOtpStore } from "@/stores/useOtpStore";
 import {
   ActivityIndicator,
   Alert,
@@ -43,6 +44,9 @@ interface UserProfile {
   bio?: string;
   phone?: string;
   role: string;
+  isLocked?: boolean;
+  lockedAt?: string;
+  lockedReason?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -622,6 +626,231 @@ function EditProfileModal({
   );
 }
 
+// ─── LOCK ACCOUNT REQUEST MODAL ────────────────────────────────────────────────
+function LockAccountModal({
+  visible,
+  profile,
+  onClose,
+  onSubmitted,
+}: {
+  visible: boolean;
+  profile: UserProfile;
+  onClose: () => void;
+  onSubmitted: () => void;
+}) {
+  const { sendOTP, verifyOTP, loading } = useOtpStore();
+  const [step, setStep] = useState<"reason" | "otp">("reason");
+  const [reason, setReason] = useState("");
+  const [otp, setOtp] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+
+  const reset = () => {
+    setStep("reason");
+    setReason("");
+    setOtp("");
+    setSubmitting(false);
+    setError("");
+  };
+
+  const close = () => {
+    reset();
+    onClose();
+  };
+
+  const sendLockOtp = async () => {
+    if (!reason.trim()) {
+      setError("Vui lòng nhập lý do khóa tài khoản");
+      return;
+    }
+
+    setError("");
+    await sendOTP(profile.email);
+    const { error: otpError } = useOtpStore.getState();
+    if (otpError) {
+      setError(otpError);
+      return;
+    }
+    setStep("otp");
+  };
+
+  const submitLockRequest = async () => {
+    if (otp.trim().length < 6) {
+      setError("Vui lòng nhập đủ 6 chữ số OTP");
+      return;
+    }
+
+    setSubmitting(true);
+    setError("");
+    try {
+      await verifyOTP(profile.email, otp.trim());
+      const { error: otpError, isOtpVerified } = useOtpStore.getState();
+      if (otpError || !isOtpVerified) {
+        setError(otpError || "OTP không hợp lệ");
+        return;
+      }
+
+      const res = await userService.requestAccountLock(reason.trim());
+      Alert.alert("Thành công", res.message);
+      reset();
+      onSubmitted();
+      onClose();
+    } catch (err: any) {
+      setError(err?.response?.data?.message ?? "Không thể gửi yêu cầu khóa tài khoản");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={close}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        style={{ flex: 1 }}
+      >
+        <Pressable
+          style={{
+            flex: 1,
+            backgroundColor: "rgba(0,0,0,0.6)",
+            justifyContent: "center",
+            padding: 20,
+          }}
+          onPress={close}
+        >
+          <Pressable onPress={(e) => e.stopPropagation()}>
+            <View style={{ backgroundColor: C.bgCard, borderRadius: 16, padding: 20 }}>
+              <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 12 }}>
+                <View
+                  style={{
+                    width: 42,
+                    height: 42,
+                    borderRadius: 12,
+                    backgroundColor: "rgba(248,113,113,0.12)",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    marginRight: 12,
+                  }}
+                >
+                  <Ionicons name="lock-closed-outline" size={22} color="#F87171" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: "#fff", fontSize: 18, fontWeight: "bold" }}>
+                    Yêu cầu khóa tài khoản
+                  </Text>
+                  <Text style={{ color: C.textGrey, fontSize: 12, marginTop: 2 }}>
+                    Admin sẽ duyệt trước khi tài khoản bị khóa.
+                  </Text>
+                </View>
+              </View>
+
+              {step === "reason" ? (
+                <>
+                  <TextInput
+                    value={reason}
+                    onChangeText={(text) => {
+                      setReason(text);
+                      setError("");
+                    }}
+                    placeholder="Nhập lý do muốn khóa tài khoản"
+                    placeholderTextColor={C.textGrey}
+                    multiline
+                    textAlignVertical="top"
+                    style={{
+                      minHeight: 110,
+                      backgroundColor: "rgba(255,255,255,0.05)",
+                      borderWidth: 1,
+                      borderColor: error ? "#F87171" : "rgba(255,255,255,0.1)",
+                      borderRadius: 10,
+                      paddingHorizontal: 14,
+                      paddingVertical: 12,
+                      color: "#fff",
+                      fontSize: 14,
+                    }}
+                  />
+                  <Text style={{ color: C.textGrey, fontSize: 12, lineHeight: 18, marginTop: 10 }}>
+                    Sau khi được duyệt, bạn sẽ không thể đăng nhập cho tới khi admin mở khóa.
+                  </Text>
+                </>
+              ) : (
+                <>
+                  <Text style={{ color: C.textGrey, fontSize: 13, lineHeight: 19, marginBottom: 12 }}>
+                    Nhập mã OTP đã gửi đến {profile.email} để xác nhận yêu cầu.
+                  </Text>
+                  <TextInput
+                    value={otp}
+                    onChangeText={(text) => {
+                      setOtp(text.replace(/\D/g, "").slice(0, 6));
+                      setError("");
+                    }}
+                    placeholder="000000"
+                    placeholderTextColor={C.textGrey}
+                    keyboardType="number-pad"
+                    maxLength={6}
+                    style={{
+                      backgroundColor: "rgba(255,255,255,0.05)",
+                      borderWidth: 1,
+                      borderColor: error ? "#F87171" : "rgba(255,255,255,0.1)",
+                      borderRadius: 10,
+                      paddingHorizontal: 14,
+                      paddingVertical: 12,
+                      color: "#fff",
+                      fontSize: 20,
+                      letterSpacing: 8,
+                      textAlign: "center",
+                      fontWeight: "800",
+                    }}
+                  />
+                </>
+              )}
+
+              {error ? (
+                <Text style={{ color: "#F87171", fontSize: 12, marginTop: 10 }}>{error}</Text>
+              ) : null}
+
+              <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 12, marginTop: 20 }}>
+                <TouchableOpacity
+                  onPress={close}
+                  style={{ paddingVertical: 10, paddingHorizontal: 16 }}
+                >
+                  <Text style={{ color: C.textGrey }}>Hủy</Text>
+                </TouchableOpacity>
+                {step === "otp" && (
+                  <TouchableOpacity
+                    onPress={() => setStep("reason")}
+                    style={{ paddingVertical: 10, paddingHorizontal: 8 }}
+                  >
+                    <Text style={{ color: C.textGrey }}>Sửa lý do</Text>
+                  </TouchableOpacity>
+                )}
+                <TouchableOpacity
+                  onPress={step === "reason" ? sendLockOtp : submitLockRequest}
+                  disabled={loading || submitting}
+                  style={{
+                    backgroundColor: "#EF4444",
+                    borderRadius: 8,
+                    paddingVertical: 10,
+                    paddingHorizontal: 18,
+                    minWidth: 98,
+                    alignItems: "center",
+                  }}
+                >
+                  {loading || submitting ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <Text style={{ color: "#fff", fontWeight: "700" }}>
+                      {step === "reason" ? "Gửi OTP" : "Xác nhận"}
+                    </Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+          </Pressable>
+        </Pressable>
+      </KeyboardAvoidingView>
+    </Modal>
+  );
+}
+
 // ─── DELETE ACCOUNT MODAL ──────────────────────────────────────────────────────
 function DeleteAccountModal({
   visible,
@@ -743,7 +972,9 @@ export default function ProfileScreen({ navigation }: { navigation: any }) {
   const [error, setError] = useState<string | null>(null);
   const [showEdit, setShowEdit] = useState(false);
   const [showChangePw, setShowChangePw] = useState(false);
+  const [showLockAccount, setShowLockAccount] = useState(false);
   const [showDeleteAccount, setShowDeleteAccount] = useState(false);
+  const [lockRequests, setLockRequests] = useState<AccountLockRequest[]>([]);
   const router = useRouter();
   const signOut = useAuthStore((s) => s.signOut);
 
@@ -766,6 +997,12 @@ export default function ProfileScreen({ navigation }: { navigation: any }) {
       setLoading(false);
       const data = res?.user ?? res;
       setProfile(data);
+      try {
+        const lockRes = await userService.getMyAccountLockRequests();
+        setLockRequests(lockRes.requests ?? []);
+      } catch (lockError) {
+        console.log("Không thể tải yêu cầu khóa tài khoản:", lockError);
+      }
     } catch (error: any) {
       setLoading(false);
       setError(error?.response?.data?.message ?? "Không thể tải thông tin");
@@ -823,6 +1060,8 @@ export default function ProfileScreen({ navigation }: { navigation: any }) {
       },
     ]);
   };
+
+  const pendingLockRequest = lockRequests.find((request) => request.status === "pending");
 
   if (loading) {
     return (
@@ -1012,6 +1251,25 @@ export default function ProfileScreen({ navigation }: { navigation: any }) {
           onPress={() => setShowChangePw(true)}
         />
         <MenuTile
+          icon="shield-outline"
+          title="Khóa tài khoản"
+          subtitle={
+            pendingLockRequest
+              ? "Yêu cầu khóa đang chờ admin duyệt"
+              : "Gửi yêu cầu khóa tài khoản tới admin"
+          }
+          onPress={() => {
+            if (pendingLockRequest) {
+              Alert.alert(
+                "Đang chờ duyệt",
+                "Bạn đã có yêu cầu khóa tài khoản đang chờ admin duyệt.",
+              );
+              return;
+            }
+            if (profile) setShowLockAccount(true);
+          }}
+        />
+        <MenuTile
           icon="trash-outline"
           title="Xóa tài khoản"
           subtitle="Xóa vĩnh viễn tài khoản và toàn bộ dữ liệu"
@@ -1073,6 +1331,14 @@ export default function ProfileScreen({ navigation }: { navigation: any }) {
         visible={showChangePw}
         onClose={() => setShowChangePw(false)}
       />
+      {profile && (
+        <LockAccountModal
+          visible={showLockAccount}
+          profile={profile}
+          onClose={() => setShowLockAccount(false)}
+          onSubmitted={loadProfile}
+        />
+      )}
       <DeleteAccountModal
         visible={showDeleteAccount}
         onClose={() => setShowDeleteAccount(false)}

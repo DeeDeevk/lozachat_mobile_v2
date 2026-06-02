@@ -17,6 +17,9 @@ interface UserProfile {
   bio?: string;
   phone?: string;
   role: string;
+  isLocked?: boolean;
+  lockedAt?: string;
+  lockedReason?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -33,6 +36,7 @@ interface AuthState {
   userProfile: UserProfile | null;
   loading: boolean;
   error: string | null;
+  errorCode: string | null;
   signIn: (data: SignInData) => Promise<boolean>;
   signUp: (data: SignUpData) => Promise<boolean>;
   signOut: () => Promise<void>;
@@ -52,12 +56,13 @@ export const useAuthStore = create<AuthState>()(
       userProfile: null,
       loading: false,
       error: null,
+      errorCode: null,
 
       setAccessToken: (accessToken) => set({ accessToken }),
       setUserProfile: (user) => set({ userProfile: user }),
 
       signIn: async (data) => {
-        set({ loading: true, error: null });
+        set({ loading: true, error: null, errorCode: null });
 
         // localStorage.clear(); -> Thay bằng:
         get().clearState();
@@ -90,10 +95,11 @@ export const useAuthStore = create<AuthState>()(
           });
           return true;
         } catch (error) {
-          const axiosError = error as AxiosError<{ message: string }>;
+          const axiosError = error as AxiosError<{ message: string; code?: string }>;
           const errorMessage =
             axiosError.response?.data?.message || "Đăng nhập thất bại";
-          set({ loading: false, error: errorMessage });
+          const errorCode = axiosError.response?.data?.code || null;
+          set({ loading: false, error: errorMessage, errorCode });
           Toast.show({ type: "error", text1: "Lỗi", text2: errorMessage });
           return false;
         }
@@ -154,6 +160,7 @@ export const useAuthStore = create<AuthState>()(
             user: null,
             userProfile: null,
             error: null,
+            errorCode: null,
           });
 
           Toast.show({
@@ -225,6 +232,8 @@ export const useAuthStore = create<AuthState>()(
           user: null,
           loading: false,
           userProfile: null,
+          error: null,
+          errorCode: null,
         });
         AsyncStorage.removeItem("auth-storage");
       },

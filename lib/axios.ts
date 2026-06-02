@@ -27,6 +27,22 @@ api.interceptors.response.use(
   (res) => res,
   async (error) => {
     const originalRequest = error.config;
+    const ignoredRefreshRoutes = [
+      "/auth/signin",
+      "/auth/signup",
+      "/auth/refresh",
+      "/otp/send",
+      "/otp/verify",
+      "/users/unlock-requests",
+    ];
+
+    if (
+      ignoredRefreshRoutes.some((route) =>
+        originalRequest?.url?.includes(route),
+      )
+    ) {
+      return Promise.reject(error);
+    }
 
     // Nếu lỗi là 401 (Unauthorized) và chưa từng thử lại (retry)
     if (error.response?.status === 401 && !originalRequest._retry) {
