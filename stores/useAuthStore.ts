@@ -1,12 +1,26 @@
 import type { SignInData, SignUpData } from "@/services/authService";
-import { authService } from "@/services/authService"; // Đảm bảo service này cũng dùng Axios cho mobile
-import AsyncStorage from "@react-native-async-storage/async-storage"; // Thay cho localStorage
+import { authService } from "@/services/authService";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { AxiosError } from "axios";
 import { decode as atob } from "base-64";
-import Toast from "react-native-toast-message"; // Thay cho sonner
+import Toast from "react-native-toast-message";
 import { create } from "zustand";
-import { createJSONStorage, persist } from "zustand/middleware";
+import { createJSONStorage, persist, StateStorage } from "zustand/middleware";
 import { useSocketStore } from "./useSocketStore";
+
+// ✅ Custom async-safe storage
+const asyncStorage: StateStorage = {
+  getItem: async (name) => {
+    const value = await AsyncStorage.getItem(name);
+    return value ?? null;
+  },
+  setItem: async (name, value) => {
+    await AsyncStorage.setItem(name, value);
+  },
+  removeItem: async (name) => {
+    await AsyncStorage.removeItem(name);
+  },
+};
 
 interface UserProfile {
   _id: string;
@@ -36,16 +50,20 @@ interface AuthState {
   userProfile: UserProfile | null;
   loading: boolean;
   error: string | null;
-  errorCode: string | null;
+  forceLogoutMessage: string | null;
+  clearForceLogout: () => void;
   signIn: (data: SignInData) => Promise<boolean>;
   signUp: (data: SignUpData) => Promise<boolean>;
   signOut: () => Promise<void>;
   fetchCurrentUser: () => Promise<void>;
   clearError: () => void;
   refresh: () => Promise<void>;
-  clearState: () => void;
+  clearState: () => Promise<void>;
   setAccessToken: (accessToken: string) => void;
   setUserProfile: (user: UserProfile) => void;
+  setForceLogoutMessage: (message: string) => void;
+  _hasHydrated: boolean;
+  setHydrated: () => void;
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -56,23 +74,37 @@ export const useAuthStore = create<AuthState>()(
       userProfile: null,
       loading: false,
       error: null,
-      errorCode: null,
+      forceLogoutMessage: null,
 
       setAccessToken: (accessToken) => set({ accessToken }),
       setUserProfile: (user) => set({ userProfile: user }),
+      clearForceLogout: () => set({ forceLogoutMessage: null }),
+
+      // ✅ Xóa toàn bộ storage liên quan
+      clearState: async () => {
+        await Promise.all([
+          AsyncStorage.removeItem("auth-storage"),
+          AsyncStorage.removeItem("refreshToken"), // ✅ Xóa luôn refreshToken riêng
+        ]);
+
+        set({
+          accessToken: null,
+          user: null,
+          loading: false,
+          userProfile: null,
+          error: null,
+        });
+      },
 
       signIn: async (data) => {
-        set({ loading: true, error: null, errorCode: null });
+        set({ loading: true, error: null });
 
-        // localStorage.clear(); -> Thay bằng:
-        get().clearState();
+        await get().clearState();
 
         try {
           const response = await authService.signIn(data);
           const token = response.accessToken;
 
-          // Giải mã JWT trên mobile (atob có thể cần polyfill hoặc dùng thư viện jwt-decode)
-          // Cách nhanh nhất là dùng decode thủ công hoặc cài 'base-64'
           const payload = JSON.parse(atob(token.split(".")[1]));
 
           set({
@@ -86,8 +118,8 @@ export const useAuthStore = create<AuthState>()(
           });
 
           await get().fetchCurrentUser();
-          // useChatStore.getState().fetchConversations(); // Mở lại khi đã có ChatStore
           useSocketStore.getState().connectSocket();
+
           Toast.show({
             type: "success",
             text1: "Thành công",
@@ -99,27 +131,9 @@ export const useAuthStore = create<AuthState>()(
           const errorMessage =
             axiosError.response?.data?.message || "Đăng nhập thất bại";
           const errorCode = axiosError.response?.data?.code || null;
-          set({ loading: false, error: errorMessage, errorCode });
+          set({ loading: false, error: errorMessage });
           Toast.show({ type: "error", text1: "Lỗi", text2: errorMessage });
           return false;
-        }
-      },
-
-      fetchMe: async () => {
-        try {
-          set({ loading: true });
-          const user = await authService.fetchMe();
-          set({ user });
-        } catch (error) {
-          console.error(error);
-          set({ user: null, accessToken: null });
-          Toast.show({
-            type: "error",
-            text1: "Lỗi",
-            text2: "Lỗi xảy ra khi lấy dữ liệu người dùng. Hãy thử lại!",
-          });
-        } finally {
-          set({ loading: false });
         }
       },
 
@@ -150,18 +164,21 @@ export const useAuthStore = create<AuthState>()(
 
       signOut: async () => {
         try {
+          // ✅ BƯỚC 1: Gọi API trước — lúc này refreshToken vẫn còn trong AsyncStorage
+          // authService.signOut() sẽ đọc refreshToken và gửi lên server để xóa session
           await authService.signOut();
         } catch (error) {
-          console.error("Lỗi đăng xuất:", error);
+          const axiosError = error as AxiosError;
+          const status = axiosError.response?.status;
+
+          // 400/401 bình thường — token hết hạn hoặc session không tồn tại
+          if (status !== 400 && status !== 401) {
+            console.error("Lỗi đăng xuất không mong muốn:", error);
+          }
         } finally {
+          // ✅ BƯỚC 2: Sau khi API xong mới disconnect socket và clear state
           useSocketStore.getState().disconnectSocket();
-          set({
-            accessToken: null,
-            user: null,
-            userProfile: null,
-            error: null,
-            errorCode: null,
-          });
+          await get().clearState(); // xóa auth-storage + refreshToken
 
           Toast.show({
             type: "success",
@@ -192,60 +209,70 @@ export const useAuthStore = create<AuthState>()(
         }
       },
 
+      // useAuthStore.ts (mobile) — sửa hàm refresh()
       refresh: async () => {
         try {
           set({ loading: true });
-
           const { user, fetchCurrentUser, setAccessToken } = get();
-
           const accessToken = await authService.refresh();
-
           setAccessToken(accessToken);
-
           if (!user) {
             await fetchCurrentUser();
           }
         } catch (error) {
-          console.error("Refresh token lỗi:", error);
+          const axiosError = error as AxiosError<{ message: string }>;
+          const status = axiosError.response?.status;
+          const message = axiosError.response?.data?.message ?? "";
 
-          try {
-            // 🔥 gọi API xoá session phía server
-            await authService.signOut();
-          } catch (e) {
-            console.warn("Không gọi được API logout:", e);
+          console.log("=== STORE REFRESH CATCH ===");
+          console.log("status:", status);
+          console.log("message:", message);
+
+          if (status === 403) {
+            await get().clearState();
+            set({
+              forceLogoutMessage:
+                "Tài khoản của bạn vừa được đăng nhập trên một thiết bị khác.",
+            });
+            return;
           }
 
-          // 🔥 clear toàn bộ state phía client
-          get().clearState();
+          // ✅ Phân biệt qua message vì backend dùng 401 cho cả 2 TH
+          if (
+            status === 401 &&
+            message === "Refresh token không tồn tại" // ← Đúng message backend trả về
+          ) {
+            await get().clearState();
+            set({
+              forceLogoutMessage:
+                "Tài khoản của bạn vừa được đăng nhập trên một thiết bị khác.",
+            });
+            return;
+          }
 
-          // toast.error("Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại!");
+          // Lỗi khác → không làm gì
         } finally {
           set({ loading: false });
         }
       },
-
+      
       clearError: () => set({ error: null }),
-
-      clearState: () => {
-        set({
-          accessToken: null,
-          user: null,
-          loading: false,
-          userProfile: null,
-          error: null,
-          errorCode: null,
-        });
-        AsyncStorage.removeItem("auth-storage");
-      },
+      setForceLogoutMessage: (message) => set({ forceLogoutMessage: message }),
+      _hasHydrated: false,
+      setHydrated: () => set({ _hasHydrated: true }),
     }),
     {
       name: "auth-storage",
-      storage: createJSONStorage(() => AsyncStorage), // QUAN TRỌNG: Cấu hình dùng AsyncStorage
+      storage: createJSONStorage(() => asyncStorage),
       partialize: (state) => ({
         user: state.user,
         accessToken: state.accessToken,
         userProfile: state.userProfile,
       }),
+      // ✅ Gọi sau khi AsyncStorage load xong
+      onRehydrateStorage: () => (state) => {
+        state?.setHydrated();
+      },
     },
   ),
 );

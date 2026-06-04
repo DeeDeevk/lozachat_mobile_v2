@@ -119,13 +119,19 @@ export default function SearchUserModal({
   // Socket realtime
   useEffect(() => {
     if (!socket || !result?._id) return;
+    // ✅ Fix - check tất cả các field có liên quan
     const handleFriendUpdate = async (update: any) => {
-      const targetId =
-        update.targetUserId ||
-        update.senderId ||
-        update.receiverId ||
-        update.fromUserId;
-      if (targetId === result._id) {
+      const involvedIds = [
+        update.targetUserId,
+        update.senderId,
+        update.receiverId,
+        update.fromUserId,
+        update.newFriend?._id,
+      ]
+        .filter(Boolean)
+        .map((id: string) => id.toString());
+
+      if (involvedIds.includes(result._id.toString())) {
         setIsUpdatingStatus(true);
         try {
           await updateFriendStatus(result._id);

@@ -16,6 +16,12 @@ export interface SeenUser {
 export interface Group {
   name: string;
   createdBy: string;
+  avatar: string | null;
+  settings?: {
+    requireApprovalToJoin?: boolean;
+    whoCanEditGroup?: "all" | "admin";
+    whoCanSendMessages?: "all" | "admin";
+  };
 }
 
 export interface LastMessage {
@@ -56,6 +62,7 @@ export interface Conversation {
   unreadCounts: Record<string, number>; // key = userId, value = unread count
   chatThemeId?: string;
   pinnedMessages?: PinnedMessage[];
+  pinnedAt?: string | null; // 👈 Thêm trường ghim hội thoại
   createdAt: string;
   updatedAt: string;
   isStranger: boolean;

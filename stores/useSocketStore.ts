@@ -1,4 +1,7 @@
 import type { SocketState } from "@/types/store";
+import { getDeviceId } from "@/utils/device";
+import { navigationHelper } from "@/utils/navigationHelper";
+import { emitSocialEvent } from "@/utils/socialRealtime";
 import { io, type Socket } from "socket.io-client";
 import { create } from "zustand";
 import { useAuthStore } from "./useAuthStore";
@@ -31,6 +34,16 @@ const registerSocketEvents = (
   socket.off("left-group");
   socket.off("member-left");
   socket.off("removed-from-group");
+  socket.off("group-join-request");
+  socket.off("join-request-reviewed");
+  socket.off("added-to-group");
+  socket.off("group-settings-updated");
+  socket.off("message-reacted");
+  socket.off("conversation:pins-updated");
+  socket.off("conversation:theme-updated");
+  socket.off("force-logout");
+  socket.off("join-request-resolved");
+  socket.off("notification");
   socket.on("removed-from-group", ({ conversationId }) => {
     useChatStore.setState((state) => ({
       conversations: state.conversations.filter(
@@ -114,9 +127,29 @@ const registerSocketEvents = (
   socket.off("message-reacted");
   socket.off("conversation:pins-updated");
   socket.off("conversation:theme-updated");
+  socket.off("force-logout");
   socket.on("connect", () => {
     console.log("Đã kết nối với socket");
   });
+
+  socket.on("force-logout", async ({ message, replacedBy }) => {
+    // ✅ Kiểm tra xem device mình có bị replace hay không
+    const currentDeviceId = await getDeviceId();
+
+    // Nếu replacedBy === currentDeviceId, nghĩa là device mình là device mới → ignore
+    if (replacedBy && replacedBy === currentDeviceId) {
+      console.log("[force-logout] Device này là device mới, ignore");
+      return;
+    }
+
+    // Device cũ nhận được → show force logout dialog
+    console.log("[force-logout] Device cũ bị logout");
+    useAuthStore.setState({
+      forceLogoutMessage:
+        message || "Phiên đăng nhập của bạn đã bị thay thế trên thiết bị khác.",
+    });
+  });
+
   socket.on("message-read", ({ userId, conversationId, messageId }) => {
     useChatStore.getState().updateLastRead(userId, conversationId, messageId);
   });
@@ -209,6 +242,10 @@ const registerSocketEvents = (
   socket.on("stranger-request", ({ conversation }) => {
     useChatStore.getState().addConversation(conversation);
     socket.emit("join-conversation", { conversationId: conversation._id });
+  });
+
+  socket.on("notification", (notification) => {
+    emitSocialEvent("notification", notification);
   });
 
   socket.on("stranger-accepted", ({ conversationId }) => {
@@ -318,14 +355,17 @@ const registerSocketEvents = (
     useChatStore.getState().addJoinRequest(request);
   });
 
-  // Người được mời biết kết quả duyệt
-  socket.on("join-request-reviewed", ({ conversationId, status }) => {
-    if (status === "rejected") {
-      // Có thể toast thông báo bị từ chối ở đây
-      console.log(`Yêu cầu vào nhóm ${conversationId} bị từ chối`);
-    }
-    // Nếu approved thì "added-to-group" sẽ được emit tiếp theo
-  });
+  socket.on(
+    "join-request-reviewed",
+    ({ conversationId, requestId, status }) => {
+      if (requestId) {
+        useChatStore.getState().removeJoinRequest(requestId);
+      }
+      if (status === "rejected") {
+        console.log(`Yêu cầu vào nhóm ${conversationId} bị từ chối`);
+      }
+    },
+  );
 
   // Được thêm vào nhóm thành công
   socket.on("added-to-group", ({ conversation }) => {
@@ -362,6 +402,34 @@ const registerSocketEvents = (
           : c,
       ),
     }));
+  });
+
+  // Trong handler
+  socket.on("removed-from-group", ({ conversationId }) => {
+    const { activeConversationId } = useChatStore.getState();
+
+    useChatStore.setState((state) => ({
+      conversations: state.conversations.filter(
+        (c) => c._id !== conversationId,
+      ),
+      activeConversationId:
+        state.activeConversationId === conversationId
+          ? null
+          : state.activeConversationId,
+      messages: Object.fromEntries(
+        Object.entries(state.messages).filter(
+          ([key]) => key !== conversationId,
+        ),
+      ),
+    }));
+
+    // ✅ Tự navigate về nếu đang ở trong conversation đó
+    if (activeConversationId === conversationId) {
+      navigationHelper.goToTabs();
+    }
+  });
+  socket.on("join-request-resolved", ({ requestId }) => {
+    useChatStore.getState().removeJoinRequest(requestId);
   });
 };
 

@@ -224,12 +224,21 @@ export const chatService = {
   },
   async updateGroupSettings(
     conversationId: string,
-    settings: { requireApprovalToJoin?: boolean },
+    settings: {
+      requireApprovalToJoin?: boolean;
+      whoCanEditGroup?: "all" | "admin";
+      whoCanSendMessages?: "all" | "admin";
+    },
   ) {
     const res = await api.patch(
       `/conversations/${conversationId}/settings`,
       settings,
     );
     return res.data;
+  },
+
+  async togglePinConversation(conversationId: string): Promise<boolean> {
+    const res = await api.patch(`/conversations/${conversationId}/toggle-pin`);
+    return res.data.isPinned;
   },
 };

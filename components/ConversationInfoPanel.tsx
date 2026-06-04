@@ -1,8 +1,19 @@
+import { useFriendStore } from "@/stores/useFriendStore";
 import type { Conversation, Message } from "@/types/chat";
 import { decodeChatPayload } from "@/utils/chatMessageCodec";
-import { ChevronDown, File, Link as LinkIcon, X } from "lucide-react-native";
-import React, { useMemo, useState } from "react";
 import {
+  Bell,
+  ChevronDown,
+  File,
+  Link as LinkIcon,
+  MessageSquare,
+  Pin,
+  Trash2,
+  X,
+} from "lucide-react-native";
+import React, { useEffect, useMemo, useState } from "react";
+import {
+  Dimensions,
   Image,
   Modal,
   Pressable,
@@ -12,6 +23,11 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import ArchiveModal from "./ArchiveModal";
+import CreateGroupModal from "./CreateGroupModal";
+
+const { width } = Dimensions.get("window");
 
 interface ConversationInfoPanelProps {
   visible: boolean;
@@ -19,8 +35,13 @@ interface ConversationInfoPanelProps {
   conversation: Conversation;
   messages: Message[];
   currentUserId?: string;
+  onDeleteConversation?: () => Promise<void>;
+  isPinned?: boolean; // Từ conversation.pinnedAt
+  onTogglePin?: () => Promise<void>;
+  onCreateGroup?: () => void;
 }
 
+// ─── HELPERS ──────────────────────────────────────────────────────────────────
 const IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg"];
 
 function isImageFile(filename: string): boolean {
@@ -28,158 +49,66 @@ function isImageFile(filename: string): boolean {
   return IMAGE_EXTENSIONS.includes(ext);
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.7)",
-  },
-  panel: {
-    position: "absolute",
-    right: 0,
-    top: 0,
-    bottom: 0,
-    width: "100%",
-    backgroundColor: "#0f172a",
-    borderLeftWidth: 1,
-    borderLeftColor: "rgba(148,163,184,0.15)",
-  },
-  panelContent: {
-    flex: 1,
-  },
-  header: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "rgba(148,163,184,0.15)",
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  headerTitle: {
-    color: "#f1f5f9",
-    fontSize: 16,
-    fontWeight: "600",
-  },
-  closeBtn: {
-    padding: 8,
-  },
-  profileSection: {
-    paddingHorizontal: 16,
-    paddingVertical: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: "rgba(148,163,184,0.15)",
-    alignItems: "center",
-    gap: 12,
-  },
-  avatar: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: "#2563eb",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  avatarText: {
-    color: "white",
-    fontSize: 32,
-    fontWeight: "700",
-  },
-  profileName: {
-    color: "#f1f5f9",
-    fontSize: 16,
-    fontWeight: "700",
-  },
-  sectionHeader: {
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: "rgba(148,163,184,0.15)",
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  sectionHeaderText: {
-    color: "#f1f5f9",
-    fontSize: 14,
-    fontWeight: "600",
-  },
-  sectionContent: {
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-  },
-  emptyText: {
-    color: "#94a3b8",
-    fontSize: 12,
-    textAlign: "center",
-    paddingVertical: 12,
-  },
-  mediaGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-  },
-  mediaItem: {
-    width: "31%",
-    aspectRatio: 1,
-    backgroundColor: "#3b82f6",
-    borderRadius: 10,
-    overflow: "hidden",
-  },
-  fileItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 10,
-    paddingVertical: 10,
-    backgroundColor: "rgba(148,163,184,0.08)",
-    borderRadius: 8,
-    marginBottom: 8,
-    gap: 8,
-  },
-  fileText: {
-    color: "#2563eb",
-    fontSize: 12,
-    flex: 1,
-  },
-  linkItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 10,
-    paddingVertical: 10,
-    backgroundColor: "rgba(148,163,184,0.08)",
-    borderRadius: 8,
-    marginBottom: 8,
-    gap: 8,
-  },
-  linkText: {
-    color: "#2563eb",
-    fontSize: 12,
-    flex: 1,
-  },
-  viewAllBtn: {
-    marginHorizontal: 16,
-    marginVertical: 8,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "rgba(37,99,235,0.3)",
-    backgroundColor: "rgba(37,99,235,0.08)",
-  },
-  viewAllBtnText: {
-    color: "#2563eb",
-    fontSize: 13,
-    fontWeight: "600",
-    textAlign: "center",
-  },
-});
+function getAvatarColor(name: string = "Unknown") {
+  const colors = [
+    "#3b82f6",
+    "#10b981",
+    "#8b5cf6",
+    "#f59e0b",
+    "#ef4444",
+    "#06b6d4",
+    "#ec4899",
+  ];
+  let hash = 0;
+  for (let i = 0; i < name.length; i++)
+    hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  return colors[Math.abs(hash) % colors.length];
+}
 
+const Section = ({
+  title,
+  count,
+  isOpen,
+  onToggle,
+  children,
+}: {
+  title: string;
+  count?: number;
+  isOpen: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+}) => (
+  <View style={styles.sectionWrap}>
+    <Pressable style={styles.sectionHeader} onPress={onToggle}>
+      <Text style={styles.sectionTitle}>
+        {title} {count !== undefined ? `(${count})` : ""}
+      </Text>
+      <View
+        style={{
+          transform: isOpen ? [{ rotate: "180deg" }] : [],
+        }}
+      >
+        <ChevronDown size={18} color="#94a3b8" />
+      </View>
+    </Pressable>
+    {isOpen && <View style={styles.sectionContent}>{children}</View>}
+  </View>
+);
+
+// ─── MAIN COMPONENT ──────────────────────────────────────────────────────────
 export default function ConversationInfoPanel({
   visible,
   onClose,
   conversation,
   messages,
   currentUserId,
+  onDeleteConversation,
+  isPinned = false,
+  onTogglePin,
+  onCreateGroup,
 }: ConversationInfoPanelProps) {
+  const insets = useSafeAreaInsets();
+
   const [expandedSections, setExpandedSections] = useState<
     Record<string, boolean>
   >({
@@ -187,12 +116,33 @@ export default function ConversationInfoPanel({
     files: true,
     links: true,
   });
+  const [isArchiveOpen, setIsArchiveOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [showCreateGroupModal, setShowCreateGroupModal] = useState(false);
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
 
   const otherUser = useMemo(
     () => conversation.participants.find((p) => p._id !== currentUserId),
     [conversation.participants, currentUserId],
   );
 
+  const { friends, getFriends } = useFriendStore();
+
+  useEffect(() => {
+    getFriends();
+  }, []);
+
+  const isStranger =
+    !!otherUser && !friends.some((f) => f._id === otherUser._id);
+
+  const toggleSection = (section: string) => {
+    setExpandedSections((prev) => ({
+      ...prev,
+      [section]: !prev[section],
+    }));
+  };
+
+  // ─── DATA LOGIC ────────────────────────────────────────────────────────────
   const mediaFiles = useMemo(() => {
     const media: Array<{
       type: "image" | "audio";
@@ -225,6 +175,24 @@ export default function ConversationInfoPanel({
           });
         }
       }
+
+      // Xử lý gửi nhiều ảnh 1 lượt
+      if (payload.kind === "image" && payload.attachments?.length) {
+        payload.attachments.forEach((att: { url: string }) => {
+          media.push({ type: "image", url: att.url, timestamp: msg.createdAt });
+        });
+      }
+      if (payload.kind === "file" && payload.attachments?.length) {
+        payload.attachments.forEach((att: { url: string; name: string }) => {
+          if (isImageFile(att.name)) {
+            media.push({
+              type: "image",
+              url: att.url,
+              timestamp: msg.createdAt,
+            });
+          }
+        });
+      }
     });
 
     return media.sort(
@@ -252,6 +220,19 @@ export default function ConversationInfoPanel({
             timestamp: msg.createdAt,
           });
         }
+      }
+
+      // Xử lý file gửi nhiều bức 1 lượt
+      if (payload.kind === "file" && payload.attachments?.length) {
+        payload.attachments.forEach((att: { url: string; name: string }) => {
+          if (!isImageFile(att.name)) {
+            files.push({
+              url: att.url,
+              name: att.name,
+              timestamp: msg.createdAt,
+            });
+          }
+        });
       }
     });
 
@@ -293,199 +274,428 @@ export default function ConversationInfoPanel({
     );
   }, [messages]);
 
-  const toggleSection = (section: string) => {
-    setExpandedSections((prev) => ({
-      ...prev,
-      [section]: !prev[section],
-    }));
-  };
-
   const mediaDisplay = mediaFiles.slice(0, 6);
   const fileDisplay = fileList.slice(0, 3);
   const linkDisplay = links.slice(0, 3);
 
+  const hasAnyMedia =
+    mediaFiles.length > 0 || fileList.length > 0 || links.length > 0;
+
   return (
-    <Modal visible={visible} transparent animationType="fade">
-      <Pressable style={styles.container} onPress={onClose}>
-        <Pressable style={styles.panel} onPress={() => {}}>
-          <View style={styles.header}>
+    <>
+      <Modal
+        visible={visible}
+        transparent={false}
+        animationType="slide"
+        presentationStyle="fullScreen"
+        onRequestClose={onClose}
+      >
+        <View style={[styles.container, { backgroundColor: "#0f172a" }]}>
+          {/* Header */}
+          <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
+            <TouchableOpacity onPress={onClose} style={styles.headerBtn}>
+              <X size={26} color="white" />
+            </TouchableOpacity>
             <Text style={styles.headerTitle}>Thông tin</Text>
-            <Pressable style={styles.closeBtn} onPress={onClose}>
-              <X size={20} color="#94a3b8" />
-            </Pressable>
+            <View style={{ width: 34 }} />
           </View>
 
           <ScrollView
-            style={styles.panelContent}
             showsVerticalScrollIndicator={false}
+            contentContainerStyle={{ paddingBottom: insets.bottom + 20 }}
           >
             {/* Profile Section */}
             <View style={styles.profileSection}>
-              <View style={styles.avatar}>
+              <View style={styles.bigAvatarContainer}>
                 {otherUser?.avatarUrl ? (
                   <Image
                     source={{ uri: otherUser.avatarUrl }}
-                    style={{ width: 80, height: 80, borderRadius: 40 }}
+                    style={styles.bigAvatar}
                   />
                 ) : (
-                  <Text style={styles.avatarText}>
-                    {otherUser?.displayName?.[0]?.toUpperCase()}
-                  </Text>
+                  <View
+                    style={[
+                      styles.bigAvatar,
+                      styles.avatarPlaceholder,
+                      {
+                        backgroundColor: getAvatarColor(
+                          otherUser?.displayName || "U",
+                        ),
+                      },
+                    ]}
+                  >
+                    <Text style={styles.avatarTxtLarge}>
+                      {otherUser?.displayName?.[0]?.toUpperCase() || "U"}
+                    </Text>
+                  </View>
                 )}
               </View>
               <Text style={styles.profileName}>
                 {otherUser?.displayName || "Người dùng"}
               </Text>
+
+              {/* Action Buttons - Ẩn khi là stranger */}
+              {!isStranger && (
+                <View style={styles.actionButtonsContainer}>
+                  <TouchableOpacity
+                    style={[
+                      styles.actionBtn,
+                      isPinned && styles.actionBtnActive,
+                    ]}
+                    onPress={onTogglePin}
+                  >
+                    <Pin
+                      size={16}
+                      color={isPinned ? "#f59e0b" : "#94a3b8"}
+                      fill={isPinned ? "#f59e0b" : "none"}
+                    />
+                    <Text
+                      style={[
+                        styles.actionBtnText,
+                        isPinned && styles.actionBtnTextActive,
+                      ]}
+                    >
+                      {isPinned ? "Bỏ ghim" : "Ghim"}
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity style={styles.actionBtn}>
+                    <Bell size={16} color="#94a3b8" />
+                    <Text style={styles.actionBtnText}>Tắt thông báo</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={styles.actionBtn}
+                    onPress={() => setShowCreateGroupModal(true)}
+                  >
+                    <MessageSquare size={16} color="#94a3b8" />
+                    <Text style={styles.actionBtnText}>Tạo nhóm</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
             </View>
 
             {/* Media Section */}
-            <View>
-              <Pressable
-                style={styles.sectionHeader}
-                onPress={() => toggleSection("media")}
-              >
-                <Text style={styles.sectionHeaderText}>Ảnh/Video</Text>
-                <View
-                  style={{
-                    transform: expandedSections.media
-                      ? [{ rotate: "180deg" }]
-                      : [],
-                  }}
-                >
-                  <ChevronDown size={18} color="#94a3b8" />
-                </View>
-              </Pressable>
-              {expandedSections.media && (
-                <View style={styles.sectionContent}>
-                  {mediaFiles.length === 0 ? (
-                    <Text style={styles.emptyText}>
-                      Chưa có Ảnh/Video được chia sẻ
-                    </Text>
-                  ) : (
-                    <>
-                      <View style={styles.mediaGrid}>
-                        {mediaDisplay.map((media, idx) => (
-                          <View key={idx} style={styles.mediaItem}>
-                            {media.type === "image" && (
-                              <Image
-                                source={{ uri: media.url }}
-                                style={{ width: "100%", height: "100%" }}
-                                resizeMode="cover"
-                              />
-                            )}
-                          </View>
-                        ))}
-                      </View>
-                      {mediaFiles.length > 6 && (
-                        <TouchableOpacity
-                          style={styles.viewAllBtn}
-                          onPress={() => {}}
-                        >
-                          <Text style={styles.viewAllBtnText}>Xem tất cả</Text>
-                        </TouchableOpacity>
+            <Section
+              title="Ảnh/Video"
+              isOpen={expandedSections.media}
+              onToggle={() => toggleSection("media")}
+            >
+              {mediaFiles.length === 0 ? (
+                <Text style={styles.emptyText}>
+                  Chưa có Ảnh/Video được chia sẻ
+                </Text>
+              ) : (
+                <View style={styles.mediaGrid}>
+                  {mediaDisplay.map((media, idx) => (
+                    <TouchableOpacity
+                      key={idx}
+                      onPress={() =>
+                        media.type === "image" && setSelectedImage(media.url)
+                      }
+                      activeOpacity={media.type === "image" ? 0.8 : 1}
+                      style={styles.mediaThumb}
+                    >
+                      {media.type === "image" && (
+                        <Image
+                          source={{ uri: media.url }}
+                          style={styles.mediaImage}
+                          resizeMode="cover"
+                        />
                       )}
-                    </>
-                  )}
+                    </TouchableOpacity>
+                  ))}
                 </View>
               )}
-            </View>
+            </Section>
 
             {/* Files Section */}
-            <View>
-              <Pressable
-                style={styles.sectionHeader}
-                onPress={() => toggleSection("files")}
-              >
-                <Text style={styles.sectionHeaderText}>File</Text>
-                <View
-                  style={{
-                    transform: expandedSections.media
-                      ? [{ rotate: "180deg" }]
-                      : [],
-                  }}
-                >
-                  <ChevronDown size={18} color="#94a3b8" />
-                </View>
-              </Pressable>
-              {expandedSections.files && (
-                <View style={styles.sectionContent}>
-                  {fileList.length === 0 ? (
-                    <Text style={styles.emptyText}>
-                      Chưa có File được chia sẻ
-                    </Text>
-                  ) : (
-                    <>
-                      {fileDisplay.map((file, idx) => (
-                        <View key={idx} style={styles.fileItem}>
-                          <File size={14} color="#8b5cf6" />
-                          <Text style={styles.fileText} numberOfLines={1}>
-                            {file.name}
-                          </Text>
-                        </View>
-                      ))}
-                      {fileList.length > 3 && (
-                        <TouchableOpacity
-                          style={styles.viewAllBtn}
-                          onPress={() => {}}
-                        >
-                          <Text style={styles.viewAllBtnText}>Xem tất cả</Text>
-                        </TouchableOpacity>
-                      )}
-                    </>
-                  )}
-                </View>
+            <Section
+              title="File"
+              isOpen={expandedSections.files}
+              onToggle={() => toggleSection("files")}
+            >
+              {fileList.length === 0 ? (
+                <Text style={styles.emptyText}>Chưa có File được chia sẻ</Text>
+              ) : (
+                <>
+                  {fileDisplay.map((file, idx) => (
+                    <View key={idx} style={styles.fileItem}>
+                      <File size={14} color="#8b5cf6" />
+                      <Text style={styles.fileText} numberOfLines={1}>
+                        {file.name}
+                      </Text>
+                    </View>
+                  ))}
+                </>
               )}
-            </View>
+            </Section>
 
             {/* Links Section */}
-            <View>
-              <Pressable
-                style={styles.sectionHeader}
-                onPress={() => toggleSection("links")}
-              >
-                <Text style={styles.sectionHeaderText}>Link</Text>
-                <View
-                  style={{
-                    transform: expandedSections.media
-                      ? [{ rotate: "180deg" }]
-                      : [],
-                  }}
-                >
-                  <ChevronDown size={18} color="#94a3b8" />
-                </View>
-              </Pressable>
-              {expandedSections.links && (
-                <View style={styles.sectionContent}>
-                  {links.length === 0 ? (
-                    <Text style={styles.emptyText}>
-                      Chưa có Link được chia sẻ
-                    </Text>
-                  ) : (
-                    <>
-                      {linkDisplay.map((link, idx) => (
-                        <View key={idx} style={styles.linkItem}>
-                          <LinkIcon size={14} color="#f59e0b" />
-                          <Text style={styles.linkText} numberOfLines={1}>
-                            {link.preview}
-                          </Text>
-                        </View>
-                      ))}
-                      {links.length > 3 && (
-                        <TouchableOpacity
-                          style={styles.viewAllBtn}
-                          onPress={() => {}}
-                        >
-                          <Text style={styles.viewAllBtnText}>Xem tất cả</Text>
-                        </TouchableOpacity>
-                      )}
-                    </>
-                  )}
-                </View>
+            <Section
+              title="Link"
+              isOpen={expandedSections.links}
+              onToggle={() => toggleSection("links")}
+            >
+              {links.length === 0 ? (
+                <Text style={styles.emptyText}>Chưa có Link được chia sẻ</Text>
+              ) : (
+                <>
+                  {linkDisplay.map((link, idx) => (
+                    <View key={idx} style={styles.linkItem}>
+                      <LinkIcon size={14} color="#f59e0b" />
+                      <Text style={styles.linkText} numberOfLines={1}>
+                        {link.preview}
+                      </Text>
+                    </View>
+                  ))}
+                </>
               )}
+            </Section>
+
+            {/* View All Button */}
+            {hasAnyMedia && (
+              <TouchableOpacity
+                style={styles.viewAllBtn}
+                onPress={() => setIsArchiveOpen(true)}
+              >
+                <Text style={styles.viewAllBtnText}>Xem tất cả</Text>
+              </TouchableOpacity>
+            )}
+
+            {/* Danger Zone */}
+            <View style={styles.dangerZone}>
+              <TouchableOpacity
+                style={styles.dangerBtn}
+                onPress={onDeleteConversation}
+                disabled={isDeleting}
+              >
+                <Trash2 size={18} color="#ef4444" />
+                <Text style={styles.dangerBtnText}>Xóa lịch sử trò chuyện</Text>
+              </TouchableOpacity>
             </View>
           </ScrollView>
-        </Pressable>
-      </Pressable>
-    </Modal>
+        </View>
+
+        {/* Image Preview Modal (Thừa kế từ Group) */}
+        {selectedImage && (
+          <Modal transparent animationType="fade">
+            <TouchableOpacity
+              style={styles.previewOverlay}
+              onPress={() => setSelectedImage(null)}
+              activeOpacity={1}
+            >
+              <Image
+                source={{ uri: selectedImage }}
+                style={styles.previewImage}
+                resizeMode="contain"
+              />
+            </TouchableOpacity>
+          </Modal>
+        )}
+      </Modal>
+
+      {/* Archive Modal */}
+      <ArchiveModal
+        isOpen={isArchiveOpen}
+        onClose={() => setIsArchiveOpen(false)}
+        mediaFiles={mediaFiles}
+        fileList={fileList}
+        links={links}
+      />
+
+      {/* Create Group Modal */}
+      {otherUser && (
+        <CreateGroupModal
+          isOpen={showCreateGroupModal}
+          onClose={() => setShowCreateGroupModal(false)}
+          initialMembers={[otherUser]}
+          onGroupCreated={onCreateGroup}
+        />
+      )}
+    </>
   );
 }
+
+// ─── STYLES ──────────────────────────────────────────────────────────────────
+const styles = StyleSheet.create({
+  container: { flex: 1 },
+
+  // Header
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingBottom: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255,255,255,0.05)",
+  },
+  headerTitle: { color: "white", fontSize: 18, fontWeight: "700" },
+  headerBtn: { padding: 4 },
+
+  // Profile
+  profileSection: {
+    alignItems: "center",
+    paddingVertical: 24,
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(148,163,184,0.15)",
+    gap: 12,
+  },
+  bigAvatarContainer: {
+    width: 90,
+    height: 90,
+    borderRadius: 45,
+    borderWidth: 3,
+    borderColor: "rgba(59,130,246,0.3)",
+    overflow: "hidden",
+  },
+  bigAvatar: { width: "100%", height: "100%" },
+  avatarPlaceholder: {
+    backgroundColor: "#3b82f6",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  avatarTxtLarge: { color: "white", fontSize: 32, fontWeight: "800" },
+  profileName: {
+    color: "white",
+    fontSize: 18,
+    fontWeight: "700",
+    textAlign: "center",
+    paddingHorizontal: 20,
+  },
+
+  // Action Buttons
+  actionButtonsContainer: {
+    flexDirection: "row",
+    gap: 8,
+    width: "100%",
+  },
+  actionBtn: {
+    flex: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 6,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "rgba(148,163,184,0.2)",
+    backgroundColor: "rgba(148,163,184,0.05)",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+  },
+  actionBtnActive: {
+    borderColor: "rgba(245,158,11,0.4)",
+    backgroundColor: "rgba(245,158,11,0.12)",
+  },
+  actionBtnText: {
+    color: "#94a3b8",
+    fontSize: 10,
+    fontWeight: "600",
+  },
+  actionBtnTextActive: {
+    color: "#f59e0b",
+  },
+
+  // Sections
+  sectionWrap: {
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(148,163,184,0.15)",
+  },
+  sectionHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    alignItems: "center",
+  },
+  sectionTitle: { color: "#f1f5f9", fontSize: 14, fontWeight: "600" },
+  sectionContent: { paddingHorizontal: 16, paddingBottom: 16 },
+  emptyText: {
+    color: "#94a3b8",
+    fontSize: 12,
+    textAlign: "center",
+    paddingVertical: 12,
+  },
+
+  // Media Grid
+  mediaGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  mediaThumb: {
+    width: (width - 48) / 3,
+    height: (width - 48) / 3,
+    borderRadius: 10,
+    overflow: "hidden",
+    backgroundColor: "#1e293b",
+  },
+  mediaImage: { width: "100%", height: "100%" },
+
+  // Files
+  fileItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    backgroundColor: "rgba(148,163,184,0.08)",
+    borderRadius: 8,
+    marginBottom: 8,
+    gap: 8,
+  },
+  fileText: { color: "#2563eb", fontSize: 12, flex: 1 },
+
+  // Links
+  linkItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    backgroundColor: "rgba(148,163,184,0.08)",
+    borderRadius: 8,
+    marginBottom: 8,
+    gap: 8,
+  },
+  linkText: { color: "#2563eb", fontSize: 12, flex: 1 },
+
+  // View All
+  viewAllBtn: {
+    marginHorizontal: 16,
+    marginVertical: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "rgba(37,99,235,0.3)",
+    backgroundColor: "rgba(37,99,235,0.08)",
+  },
+  viewAllBtnText: {
+    color: "#2563eb",
+    fontSize: 13,
+    fontWeight: "600",
+    textAlign: "center",
+  },
+
+  // Danger Zone
+  dangerZone: { padding: 16, gap: 12 },
+  dangerBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+    padding: 14,
+    borderRadius: 12,
+    backgroundColor: "rgba(248,113,113,0.08)",
+  },
+  dangerBtnText: { color: "#f87171", fontWeight: "600", fontSize: 14 },
+
+  // Image Preview
+  previewOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.9)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  previewImage: { width: "90%", height: "70%" },
+});
