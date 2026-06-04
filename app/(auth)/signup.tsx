@@ -106,10 +106,13 @@ export default function SignUpScreen() {
   const handleRegisterPress = async () => {
     if (!validate()) return;
 
-    const success = await sendOTP2(formData.email);
-    if (success) {
+    await sendOTP2(formData.email);
+    const { error } = useOtpStore.getState();
+    if (!error) {
       setResendTimer(60);
       setShowOtpModal(true);
+    } else {
+      console.log("❌ sendOTP2 returned false");
     }
   };
 
@@ -257,52 +260,50 @@ export default function SignUpScreen() {
               <Text style={styles.label}>Mật khẩu</Text>
               <View style={styles.passWrapper}>
                 <TextInput
-                  style={[
-                    styles.input,
-                    { flex: 1 },
-                    focusedField === "pass" && styles.focused,
-                  ]}
+                  style={[styles.input, { flex: 1 }, focusedField === "pass" && styles.focused]}
                   placeholder="••••••••"
                   placeholderTextColor="#64748b"
                   secureTextEntry={!showPassword}
                   onFocus={() => setFocusedField("pass")}
                   onBlur={() => setFocusedField(null)}
-                  onChangeText={(t) =>
-                    setFormData({ ...formData, password: t })
-                  }
+                  onChangeText={(t) => setFormData({ ...formData, password: t })}
                 />
-                <TouchableOpacity
-                  onPress={() => setShowPassword(!showPassword)}
-                  style={styles.eyeBtn}
-                >
-                  {showPassword ? (
-                    <EyeOff size={18} color="#64748b" />
-                  ) : (
-                    <Eye size={18} color="#64748b" />
-                  )}
+                <TouchableOpacity onPress={() => setShowPassword(!showPassword)} style={styles.eyeBtn}>
+                  {showPassword ? <EyeOff size={18} color="#64748b" /> : <Eye size={18} color="#64748b" />}
                 </TouchableOpacity>
               </View>
-              {/* Strength Bar */}
+              {/* Strength bar */}
               {formData.password.length > 0 && (
                 <View style={styles.strengthRow}>
                   {[1, 2, 3].map((i) => (
-                    <View
-                      key={i}
-                      style={[
-                        styles.strengthBar,
-                        {
-                          backgroundColor:
-                            strength.level >= i ? strength.color : "#1e293b",
-                        },
-                      ]}
-                    />
+                    <View key={i} style={[styles.strengthBar, {
+                      backgroundColor: strength.level >= i ? strength.color : "#1e293b"
+                    }]} />
                   ))}
-                  <Text
-                    style={[styles.strengthLabel, { color: strength.color }]}
-                  >
-                    {strength.label}
-                  </Text>
+                  <Text style={[styles.strengthLabel, { color: strength.color }]}>{strength.label}</Text>
                 </View>
+              )}
+              {errors.password && <Text style={{ color: '#ef4444', fontSize: 11, marginTop: 4 }}>{errors.password}</Text>}
+            </View>
+
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Xác nhận mật khẩu</Text>
+              <View style={styles.passWrapper}>
+                <TextInput
+                  style={[styles.input, { flex: 1 }, focusedField === "cpass" && styles.focused]}
+                  placeholder="••••••••"
+                  placeholderTextColor="#64748b"
+                  secureTextEntry={!showConfirmPassword}
+                  onFocus={() => setFocusedField("cpass")}
+                  onBlur={() => setFocusedField(null)}
+                  onChangeText={(t) => setFormData({ ...formData, confirmPassword: t })}
+                />
+                <TouchableOpacity onPress={() => setShowConfirmPassword(!showConfirmPassword)} style={styles.eyeBtn}>
+                  {showConfirmPassword ? <EyeOff size={18} color="#64748b" /> : <Eye size={18} color="#64748b" />}
+                </TouchableOpacity>
+              </View>
+              {errors.confirmPassword && (
+                <Text style={{ color: '#ef4444', fontSize: 11, marginTop: 4 }}>{errors.confirmPassword}</Text>
               )}
             </View>
 
@@ -371,7 +372,7 @@ export default function SignUpScreen() {
                   {otp.map((digit, i) => (
                     <TextInput
                       key={i}
-                      ref={(el) => (otpInputs.current[i] == el)}
+                      ref={(el) => (otpInputs.current[i] = el)}
                       style={styles.otpBox}
                       keyboardType="number-pad"
                       maxLength={1}

@@ -1113,6 +1113,7 @@ export default function ProfileScreen({ navigation }: { navigation: any }) {
         </Text>
         <TouchableOpacity
           onPress={loadProfile}
+          // onPress={confirmLogout}
           style={{
             backgroundColor: C.accentBlue,
             paddingHorizontal: 24,
